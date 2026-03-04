@@ -1,4 +1,4 @@
-# EduManage - Manual de Instalação e Uso (Local)
+# - Manual de Instalação e Uso (Local)
 
 ## Pré-requisitos
 

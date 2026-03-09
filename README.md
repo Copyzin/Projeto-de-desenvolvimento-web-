@@ -1,4 +1,5 @@
 # - Manual de Instalação e Uso (Local)
+Mockup (miro/mapa mental): https://miro.com/app/board/uXjVG2J4c9I=/?share_link_id=665352397930
 
 ## Pré-requisitos
 

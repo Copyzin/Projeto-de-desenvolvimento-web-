@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 const roleSchema = z.enum(["admin", "teacher", "student"]);
+const enrollmentStatusSchema = z.enum(["active", "completed", "dropped", "locked", "canceled"]);
+const notificationTypeSchema = z.enum(["announcement", "finance", "academic", "system"]);
+const decimalGradeSchema = z
+  .coerce
+  .number()
+  .min(0)
+  .max(10)
+  .refine((value) => Number.isFinite(value) && Math.round(value * 100) / 100 === value, {
+    message: "Nota deve ter no maximo duas casas decimais",
+  });
 
 export const userPublicSchema = z.object({
   id: z.number(),
@@ -36,11 +46,25 @@ export const subjectSchema = z.object({
   createdAt: z.string().or(z.date()).optional(),
 });
 
+export const classSectionSchema = z.object({
+  id: z.number(),
+  code: z.string(),
+  name: z.string(),
+  courseId: z.number(),
+  academicTermId: z.number(),
+  academicTermCode: z.string(),
+});
+
 export const enrollmentSchema = z.object({
   id: z.number(),
   studentId: z.number(),
   courseId: z.number(),
-  status: z.enum(["active", "completed", "dropped"]),
+  status: enrollmentStatusSchema,
+  classSectionId: z.number().nullable().optional(),
+  academicTermId: z.number().nullable().optional(),
+  classSectionCode: z.string().optional(),
+  classSectionName: z.string().optional(),
+  academicTermCode: z.string().optional(),
   enrolledAt: z.string().or(z.date()).optional(),
   createdAt: z.string().or(z.date()).optional(),
   grade: z.number().nullable().optional(),
@@ -61,6 +85,63 @@ export const announcementSchema = z.object({
   expiresAt: z.string().or(z.date()).nullable().optional(),
   createdAt: z.string().or(z.date()).optional(),
   courseIds: z.array(z.number()).optional(),
+  classSectionIds: z.array(z.number()).optional(),
+});
+
+export const notificationSchema = z.object({
+  id: z.number(),
+  type: notificationTypeSchema,
+  title: z.string(),
+  message: z.string(),
+  senderId: z.number().nullable().optional(),
+  senderName: z.string().optional(),
+  destinationRoute: z.string(),
+  relatedEntityType: z.string().nullable().optional(),
+  relatedEntityId: z.number().nullable().optional(),
+  isRead: z.boolean(),
+  createdAt: z.string().or(z.date()),
+});
+
+export const materialSchema = z.object({
+  id: z.number(),
+  originalName: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  authorId: z.number(),
+  authorName: z.string().optional(),
+  courseId: z.number(),
+  courseName: z.string().optional(),
+  classSectionId: z.number().nullable().optional(),
+  classSectionCode: z.string().optional(),
+  classSectionName: z.string().optional(),
+  issuedAt: z.string().or(z.date()),
+  createdAt: z.string().or(z.date()),
+  isPinned: z.boolean(),
+  downloadUrl: z.string(),
+});
+
+export const studentListSchema = userPublicSchema.extend({
+  enrollmentId: z.number(),
+  enrollmentStatus: enrollmentStatusSchema,
+  courseId: z.number(),
+  courseCode: z.string(),
+  courseName: z.string(),
+  classSectionId: z.number().nullable(),
+  classSectionCode: z.string().optional(),
+  classSectionName: z.string().optional(),
+  academicTermId: z.number().nullable().optional(),
+  academicTermCode: z.string().optional(),
+});
+
+export const studentScopeSchema = z.object({
+  courses: z.array(
+    z.object({
+      id: z.number(),
+      code: z.string(),
+      name: z.string(),
+    }),
+  ),
+  classSections: z.array(classSectionSchema),
 });
 
 export const errorSchemas = {
@@ -200,6 +281,29 @@ export const api = {
     },
   },
   students: {
+    scope: {
+      method: "GET" as const,
+      path: "/api/students/scope" as const,
+      responses: {
+        200: studentScopeSchema,
+        403: errorSchemas.forbidden,
+      },
+    },
+    list: {
+      method: "GET" as const,
+      path: "/api/students" as const,
+      input: z
+        .object({
+          courseId: z.coerce.number().optional(),
+          classSectionId: z.coerce.number().optional(),
+          status: enrollmentStatusSchema.optional(),
+        })
+        .optional(),
+      responses: {
+        200: z.array(studentListSchema),
+        403: errorSchemas.forbidden,
+      },
+    },
     enroll: {
       method: "POST" as const,
       path: "/api/students/enroll" as const,
@@ -209,12 +313,30 @@ export const api = {
         phone: z.string().min(8, "Telefone obrigatorio"),
         email: z.string().email("E-mail invalido"),
         courseId: z.coerce.number().int().positive("Curso obrigatorio"),
+        classSectionId: z.coerce.number().int().positive("Turma obrigatoria"),
       }),
       responses: {
         201: z.object({
           user: userPublicSchema,
           enrollment: enrollmentSchema,
         }),
+      },
+    },
+    lockEnrollment: {
+      method: "POST" as const,
+      path: "/api/students/enrollments/:id/lock" as const,
+      input: z.object({
+        reason: z.string().min(5, "Motivo obrigatorio"),
+        approvedSubjectIds: z.array(z.coerce.number().int().positive()).optional(),
+      }),
+      responses: {
+        200: z.object({
+          enrollment: enrollmentSchema,
+          preservedApprovedSubjects: z.number().int().nonnegative(),
+        }),
+        400: errorSchemas.validation,
+        403: errorSchemas.forbidden,
+        404: errorSchemas.notFound,
       },
     },
   },
@@ -325,8 +447,10 @@ export const api = {
       input: z.object({
         studentId: z.coerce.number().int().positive(),
         courseId: z.coerce.number().int().positive(),
-        grade: z.coerce.number().nullable().optional(),
-        attendance: z.coerce.number().nullable().optional(),
+        classSectionId: z.coerce.number().int().positive().optional(),
+        academicTermId: z.coerce.number().int().positive().optional(),
+        grade: decimalGradeSchema.nullable().optional(),
+        attendance: z.coerce.number().int().min(0).max(500).nullable().optional(),
       }),
       responses: {
         201: enrollmentSchema,
@@ -338,9 +462,9 @@ export const api = {
       path: "/api/enrollments/:id" as const,
       input: z
         .object({
-          grade: z.coerce.number().min(0).max(100).optional(),
-          attendance: z.coerce.number().min(0).max(100).optional(),
-          status: z.enum(["active", "completed", "dropped"]).optional(),
+          grade: decimalGradeSchema.optional(),
+          attendance: z.coerce.number().int().min(0).max(500).optional(),
+          status: enrollmentStatusSchema.optional(),
         })
         .partial(),
       responses: {
@@ -356,6 +480,7 @@ export const api = {
       input: z
         .object({
           courseId: z.coerce.number().optional(),
+          classSectionId: z.coerce.number().optional(),
         })
         .optional(),
       responses: {
@@ -370,11 +495,92 @@ export const api = {
         content: z.string().min(3, "Conteudo obrigatorio"),
         isGlobal: z.boolean(),
         courseIds: z.array(z.coerce.number().int().positive()).optional(),
+        classSectionIds: z.array(z.coerce.number().int().positive()).optional(),
         expiresAt: z.string().datetime().optional(),
       }),
       responses: {
         201: announcementSchema,
         400: errorSchemas.validation,
+      },
+    },
+    remove: {
+      method: "DELETE" as const,
+      path: "/api/announcements/:id" as const,
+      responses: {
+        200: z.object({ message: z.string() }),
+        403: errorSchemas.forbidden,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  materials: {
+    list: {
+      method: "GET" as const,
+      path: "/api/materials" as const,
+      responses: {
+        200: z.array(materialSchema),
+        403: errorSchemas.forbidden,
+      },
+    },
+    upload: {
+      method: "POST" as const,
+      path: "/api/materials/upload" as const,
+      input: z.object({
+        classSectionId: z.coerce.number().int().positive(),
+        issuedAt: z.string().datetime().optional(),
+      }),
+      responses: {
+        201: materialSchema,
+        400: errorSchemas.validation,
+        403: errorSchemas.forbidden,
+      },
+    },
+    download: {
+      method: "GET" as const,
+      path: "/api/materials/:id/download" as const,
+      responses: {
+        200: z.void(),
+        403: errorSchemas.forbidden,
+        404: errorSchemas.notFound,
+      },
+    },
+    pin: {
+      method: "POST" as const,
+      path: "/api/materials/:id/pin" as const,
+      responses: {
+        200: z.object({ message: z.string() }),
+        403: errorSchemas.forbidden,
+        404: errorSchemas.notFound,
+      },
+    },
+    unpin: {
+      method: "DELETE" as const,
+      path: "/api/materials/:id/pin" as const,
+      responses: {
+        200: z.object({ message: z.string() }),
+        403: errorSchemas.forbidden,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  notifications: {
+    list: {
+      method: "GET" as const,
+      path: "/api/notifications" as const,
+      input: z
+        .object({
+          unreadOnly: z.coerce.boolean().optional(),
+        })
+        .optional(),
+      responses: {
+        200: z.array(notificationSchema),
+      },
+    },
+    markRead: {
+      method: "POST" as const,
+      path: "/api/notifications/:id/read" as const,
+      responses: {
+        200: z.object({ message: z.string() }),
       },
     },
   },

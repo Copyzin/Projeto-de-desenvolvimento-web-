@@ -41,7 +41,7 @@ export function useUpdateEnrollment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.enrollments.list.path] });
-      toast({ title: "Matricula atualizada", description: "Nota/presenca salvas com sucesso." });
+      toast({ title: "Matricula atualizada", description: "Nota e faltas salvas com sucesso." });
     },
     onError: (error) => {
       toast({
@@ -95,6 +95,7 @@ export function useEnrollStudent() {
       phone: string;
       email: string;
       courseId: number;
+      classSectionId: number;
     }) => {
       const res = await fetch(api.students.enroll.path, {
         method: api.students.enroll.method,
@@ -110,6 +111,7 @@ export function useEnrollStudent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.users.list.path, "student"] });
       queryClient.invalidateQueries({ queryKey: [api.enrollments.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.students.list.path] });
       toast({ title: "Aluno matriculado", description: "Cadastro realizado com sucesso." });
     },
     onError: (error) => {

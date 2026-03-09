@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Clock, Megaphone, Plus, User } from "lucide-react";
-import { useAnnouncements, useCreateAnnouncement } from "@/hooks/use-announcements";
+import { Clock, Megaphone, Plus, Trash2, User } from "lucide-react";
+import { useAnnouncements, useCreateAnnouncement, useDeleteAnnouncement } from "@/hooks/use-announcements";
 import { useAuth } from "@/hooks/use-auth";
 import { useCourses } from "@/hooks/use-courses";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,7 @@ export default function Announcements() {
   const { data: announcements, isLoading } = useAnnouncements();
   const { courses } = useCourses();
   const createMutation = useCreateAnnouncement();
+  const deleteMutation = useDeleteAnnouncement();
 
   const [isOpen, setIsOpen] = useState(false);
   const [selectedCourseIds, setSelectedCourseIds] = useState<number[]>([]);
@@ -48,6 +49,7 @@ export default function Announcements() {
 
   const isGlobal = form.watch("isGlobal");
   const canPost = user?.role === "admin" || user?.role === "teacher";
+  const canDelete = user?.role === "admin" || user?.role === "teacher";
 
   function toggleCourse(courseId: number, checked: boolean) {
     setSelectedCourseIds((current) => {
@@ -61,12 +63,16 @@ export default function Announcements() {
   }
 
   const sortedAnnouncements = useMemo(
-    () =>
-      (announcements ?? []).slice().sort((a, b) => {
+    () => {
+      const highlightedId = Number(new URLSearchParams(window.location.search).get("announcementId") || "0");
+      return (announcements ?? []).slice().sort((a, b) => {
+        if (highlightedId && a.id === highlightedId) return -1;
+        if (highlightedId && b.id === highlightedId) return 1;
         const dateA = new Date(a.createdAt ?? 0).getTime();
         const dateB = new Date(b.createdAt ?? 0).getTime();
         return dateB - dateA;
-      }),
+      });
+    },
     [announcements],
   );
 
@@ -77,6 +83,7 @@ export default function Announcements() {
         content: data.content,
         isGlobal: data.isGlobal,
         courseIds: data.isGlobal ? [] : selectedCourseIds,
+        classSectionIds: [],
         expiresAt: data.expiresAt ? new Date(data.expiresAt).toISOString() : undefined,
       },
       {
@@ -183,12 +190,35 @@ export default function Announcements() {
             <p className="text-muted-foreground">Nenhum comunicado publicado no momento.</p>
           </div>
         ) : (
-          sortedAnnouncements.map((post) => (
-            <Card key={post.id} className="overflow-hidden border-l-4 border-l-primary shadow-sm hover:shadow-md transition-shadow">
+          sortedAnnouncements.map((post) => {
+            const highlightedId = Number(new URLSearchParams(window.location.search).get("announcementId") || "0");
+            const isHighlighted = highlightedId === post.id;
+
+            return (
+            <Card
+              key={post.id}
+              className={`overflow-hidden border-l-4 border-l-primary shadow-sm hover:shadow-md transition-shadow ${
+                isHighlighted ? "ring-2 ring-primary/40" : ""
+              }`}
+            >
               <CardContent className="p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                   <h3 className="text-xl font-bold text-foreground">{post.title}</h3>
                   <div className="flex gap-2 items-center">
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Excluir comunicado ${post.title}`}
+                        disabled={deleteMutation.isPending}
+                        onClick={() => {
+                          if (!window.confirm("Deseja realmente excluir este comunicado?")) return;
+                          deleteMutation.mutate(post.id);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                     <Badge variant={post.isGlobal ? "secondary" : "outline"}>
                       {post.isGlobal ? "Geral" : "Direcionado"}
                     </Badge>
@@ -216,7 +246,7 @@ export default function Announcements() {
                 </div>
               </CardContent>
             </Card>
-          ))
+          )})
         )}
       </div>
     </div>

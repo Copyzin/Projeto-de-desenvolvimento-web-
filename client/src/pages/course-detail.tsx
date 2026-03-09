@@ -63,8 +63,9 @@ export default function CourseDetail() {
     setSelectedSubjectIds(selectedSubjects.map((subject) => subject.id));
   }, [selectedSubjects]);
 
-  const canEditGrades = user?.role === "teacher" || user?.role === "admin";
+  const canEditGrades = user?.role === "teacher";
   const canEditCurriculum = user?.role === "admin";
+  const canViewStudentsList = user?.role === "teacher" || user?.role === "admin";
 
   const enrollmentRows = useMemo(() => enrollments ?? [], [enrollments]);
 
@@ -129,28 +130,32 @@ export default function CourseDetail() {
               <User className="w-4 h-4" />
               <span className="font-medium">{course.teacherName || "Professor nao atribuido"}</span>
             </div>
-          </div>
-          <Badge variant="secondary" className="bg-slate-100 text-slate-700">
-            Matriculas realizadas na aba Alunos
-          </Badge>
+          </div>          {user?.role === "admin" && (
+            <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+              Matriculas realizadas na aba Alunos
+            </Badge>
+          )}
         </div>
         <p className="mt-6 text-muted-foreground max-w-3xl leading-relaxed">
           {course.description || "Sem descricao cadastrada para este curso."}
         </p>
       </div>
 
-      <Tabs defaultValue="students" className="space-y-6">
+      <Tabs defaultValue={canViewStudentsList ? "students" : "curriculum"} className="space-y-6">
         <TabsList className="bg-white p-1 border border-border rounded-xl">
-          <TabsTrigger value="students" className="rounded-lg data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
-            <Users className="w-4 h-4 mr-2" />
-            Alunos matriculados
-          </TabsTrigger>
+          {canViewStudentsList && (
+            <TabsTrigger value="students" className="rounded-lg data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+              <Users className="w-4 h-4 mr-2" />
+              Alunos matriculados
+            </TabsTrigger>
+          )}
           <TabsTrigger value="curriculum" className="rounded-lg data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
             <Calendar className="w-4 h-4 mr-2" />
             Grade curricular
           </TabsTrigger>
         </TabsList>
 
+        {canViewStudentsList && (
         <TabsContent value="students">
           <Card>
             <CardHeader>
@@ -168,8 +173,8 @@ export default function CourseDetail() {
                       <TableHead>Aluno</TableHead>
                       <TableHead>R.A</TableHead>
                       <TableHead>Data de matricula</TableHead>
-                      <TableHead>Presenca</TableHead>
-                      <TableHead>Nota</TableHead>
+                      <TableHead>Faltas</TableHead>
+                      <TableHead>Nota (0-10)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -185,6 +190,9 @@ export default function CourseDetail() {
                             <Input
                               type="number"
                               className="w-24 h-8"
+                              min={0}
+                              max={500}
+                              step={1}
                               defaultValue={item.attendance ?? 0}
                               onBlur={(event) => {
                                 const attendance = Number(event.target.value);
@@ -193,7 +201,7 @@ export default function CourseDetail() {
                               }}
                             />
                           ) : (
-                            <Badge variant="outline">{item.attendance ?? 0}%</Badge>
+                            <Badge variant="outline">{item.attendance ?? 0}</Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -201,6 +209,9 @@ export default function CourseDetail() {
                             <Input
                               type="number"
                               className="w-24 h-8"
+                              min={0}
+                              max={10}
+                              step={0.1}
                               defaultValue={item.grade ?? ""}
                               onBlur={(event) => {
                                 const grade = Number(event.target.value);
@@ -220,6 +231,7 @@ export default function CourseDetail() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         <TabsContent value="curriculum">
           <Card>
@@ -290,7 +302,7 @@ export default function CourseDetail() {
                     <div className="flex-1">
                       <p className="font-medium">{subject.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {subject.code} • {subject.workloadHours}h
+                        {subject.code} â€¢ {subject.workloadHours}h
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">{subject.description || "Sem descricao."}</p>
                     </div>

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/ui/logo";
-import { LoginTransition } from "@/components/login-transition";
 import NebulaBackground from "@/components/nebula-background";
 
 const loginSchema = z.object({
@@ -25,7 +24,6 @@ type LoginForm = z.infer<typeof loginSchema>;
 export default function Login() {
   const { login, user } = useAuth();
   const [, setLocation] = useLocation();
-  const [showTransition, setShowTransition] = useState(false);
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -33,12 +31,10 @@ export default function Login() {
   });
 
   useEffect(() => {
-    if (user || login.isSuccess) {
-      setShowTransition(true);
-      const timer = window.setTimeout(() => setLocation("/"), 1500); // Wait for transition to finish
-      return () => window.clearTimeout(timer);
+    if (user) {
+      setLocation("/");
     }
-  }, [user, login.isSuccess, setLocation]);
+  }, [user, setLocation]);
 
   function onSubmit(data: LoginForm) {
     login.mutate(data);
@@ -77,9 +73,6 @@ export default function Login() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-transparent p-4 relative overflow-hidden">
       <NebulaBackground />
-      <AnimatePresence>
-        {showTransition && <LoginTransition />}
-      </AnimatePresence>
       <motion.div
         className="w-full max-w-md"
         variants={containerVariants}

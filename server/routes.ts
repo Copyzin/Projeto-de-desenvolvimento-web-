@@ -1,5 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { type Server } from "http";
+import multer from "multer";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { User } from "@shared/schema";
@@ -49,6 +53,16 @@ function parseOptionalPositiveInt(value: unknown) {
   return numberValue;
 }
 
+async function canTeacherManageCourse(userId: number, courseId: number) {
+  const allowedCourses = await storage.getTeacherCourseIds(userId);
+  return allowedCourses.includes(courseId);
+}
+
+async function canTeacherManageClassSection(userId: number, classSectionId: number) {
+  const allowedSections = await storage.getTeacherClassSectionIds(userId);
+  return allowedSections.includes(classSectionId);
+}
+
 function getFirstZodErrorMessage(error: z.ZodError) {
   return error.errors[0]?.message ?? "Dados invalidos";
 }
@@ -58,7 +72,98 @@ function handleRouteError(res: Response, error: unknown, internalMessage = "Erro
     return res.status(400).json({ message: getFirstZodErrorMessage(error) });
   }
 
+  if (error instanceof Error) {
+    if (error.message.includes("nao encontrada")) {
+      return res.status(404).json({ message: error.message });
+    }
+
+    if (error.message.includes("Turma") || error.message.includes("invalida")) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
+
   return res.status(500).json({ message: internalMessage });
+}
+
+const MATERIAL_UPLOAD_MAX_SIZE = Number(process.env.MATERIAL_UPLOAD_MAX_SIZE_BYTES ?? 15 * 1024 * 1024);
+const MATERIAL_STORAGE_DIR = path.resolve(process.cwd(), "storage", "materials");
+const allowedMaterialMimeTypes = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-rar-compressed",
+  "image/png",
+  "image/jpeg",
+]);
+
+const allowedMaterialExtensions = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".txt",
+  ".zip",
+  ".rar",
+  ".png",
+  ".jpg",
+  ".jpeg",
+]);
+
+const materialUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MATERIAL_UPLOAD_MAX_SIZE,
+  },
+});
+
+function sanitizeOriginalFileName(fileName: string) {
+  const normalized = fileName.trim().replace(/[\r\n]/g, "");
+  return normalized.replace(/[^\w.\-()\s]/g, "_").slice(0, 180) || "arquivo";
+}
+
+function buildMaterialApiResponse(material: {
+  id: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  authorId: number;
+  authorName?: string;
+  courseId: number;
+  courseName?: string;
+  classSectionId?: number | null;
+  classSectionCode?: string;
+  classSectionName?: string;
+  issuedAt: Date;
+  createdAt: Date;
+  isPinned?: boolean;
+}) {
+  return {
+    id: material.id,
+    originalName: material.originalName,
+    mimeType: material.mimeType,
+    sizeBytes: material.sizeBytes,
+    authorId: material.authorId,
+    authorName: material.authorName,
+    courseId: material.courseId,
+    courseName: material.courseName,
+    classSectionId: material.classSectionId ?? null,
+    classSectionCode: material.classSectionCode,
+    classSectionName: material.classSectionName,
+    issuedAt: material.issuedAt,
+    createdAt: material.createdAt,
+    isPinned: Boolean(material.isPinned),
+    downloadUrl: `/api/materials/${material.id}/download`,
+  };
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -278,6 +383,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get(api.students.scope.path, requireAuth, async (req, res) => {
+    const user = getAuthUser(req);
+
+    if (user.role === "student") {
+      return res.status(403).json({ message: "Acesso negado" });
+    }
+
+    const scope = await storage.getStudentScope(user);
+    return res.json(scope);
+  });
+
+  app.get(api.students.list.path, requireAuth, async (req, res) => {
+    const user = getAuthUser(req);
+
+    if (user.role === "student") {
+      return res.status(403).json({ message: "Acesso negado" });
+    }
+
+    const input = api.students.list.input.parse(req.query);
+
+    if (user.role === "teacher" && !input?.classSectionId) {
+      return res.status(400).json({ message: "Professor deve selecionar turma para listar alunos" });
+    }
+
+    const students = await storage.getStudentsByScope(user, input);
+    return res.json(students);
+  });
+
   app.post(api.students.enroll.path, requireRoles("admin"), async (req, res) => {
     try {
       const input = api.students.enroll.input.parse(req.body);
@@ -299,6 +432,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const enrollment = await storage.createEnrollment({
         studentId: student.id,
         courseId: input.courseId,
+        classSectionId: input.classSectionId,
         grade: null,
         attendance: 0,
         status: "active",
@@ -313,8 +447,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get(api.courses.list.path, requireAuth, async (_req, res) => {
-    const courses = await storage.getCourses();
+  app.post(api.students.lockEnrollment.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const enrollmentId = Number(req.params.id);
+      if (!Number.isFinite(enrollmentId)) {
+        return res.status(400).json({ message: "Matricula invalida" });
+      }
+
+      const input = api.students.lockEnrollment.input.parse(req.body);
+      const user = getAuthUser(req);
+
+      const result = await storage.lockEnrollment({
+        enrollmentId,
+        changedByUserId: user.id,
+        reason: input.reason,
+        approvedSubjectIds: input.approvedSubjectIds,
+      });
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Matricula nao encontrada")) {
+        return res.status(404).json({ message: error.message });
+      }
+      return handleRouteError(res, error, "Nao foi possivel trancar a matricula");
+    }
+  });
+
+  app.get(api.courses.list.path, requireAuth, async (req, res) => {
+    const user = getAuthUser(req);
+    const courses = await storage.getCoursesForUser(user);
     return res.json(courses);
   });
 
@@ -322,6 +483,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const courseId = Number(req.params.id);
     if (!Number.isFinite(courseId)) {
       return res.status(400).json({ message: "Curso invalido" });
+    }
+
+    const user = getAuthUser(req);
+    if (user.role !== "admin") {
+      const allowedCourses = await storage.getCoursesForUser(user);
+      if (!allowedCourses.some((course) => course.id === courseId)) {
+        return res.status(403).json({ message: "Acesso negado ao curso solicitado" });
+      }
     }
 
     const course = await storage.getCourse(courseId);
@@ -382,6 +551,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ message: "Curso invalido" });
     }
 
+    const user = getAuthUser(req);
+    if (user.role !== "admin") {
+      const allowedCourses = await storage.getCoursesForUser(user);
+      if (!allowedCourses.some((course) => course.id === courseId)) {
+        return res.status(403).json({ message: "Acesso negado ao curso solicitado" });
+      }
+    }
+
     const subjects = await storage.getCourseSubjects(courseId);
     return res.json(subjects);
   });
@@ -412,7 +589,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       studentId = user.id;
     }
 
-    const enrollments = await storage.getEnrollments(requestedCourseId, studentId);
+    if (user.role === "teacher" && requestedCourseId) {
+      const teacherCanManage = await canTeacherManageCourse(user.id, requestedCourseId);
+      if (!teacherCanManage) {
+        return res.status(403).json({ message: "Professor nao possui acesso a este curso" });
+      }
+    }
+
+    let enrollments = await storage.getEnrollments(requestedCourseId, studentId);
+
+    if (user.role === "teacher") {
+      const [teacherCourseIds, teacherClassSectionIds] = await Promise.all([
+        storage.getTeacherCourseIds(user.id),
+        storage.getTeacherClassSectionIds(user.id),
+      ]);
+      const courseSet = new Set(teacherCourseIds);
+      const sectionSet = new Set(teacherClassSectionIds);
+      enrollments = enrollments.filter(
+        (entry) =>
+          courseSet.has(entry.courseId) &&
+          (!entry.classSectionId || sectionSet.size === 0 || sectionSet.has(entry.classSectionId)),
+      );
+    }
+
     return res.json(enrollments);
   });
 
@@ -422,6 +621,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const enrollment = await storage.createEnrollment({
         studentId: input.studentId,
         courseId: input.courseId,
+        classSectionId: input.classSectionId,
+        academicTermId: input.academicTermId,
         grade: input.grade ?? null,
         attendance: input.attendance ?? 0,
         status: "active",
@@ -433,15 +634,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.patch(api.enrollments.update.path, requireRoles("admin", "teacher"), async (req, res) => {
+  app.patch(api.enrollments.update.path, requireRoles("teacher"), async (req, res) => {
     try {
       const enrollmentId = Number(req.params.id);
       if (!Number.isFinite(enrollmentId)) {
         return res.status(400).json({ message: "Matricula invalida" });
       }
 
+      const user = getAuthUser(req);
+      const existingEnrollment = await storage.getEnrollmentById(enrollmentId);
+      if (!existingEnrollment) {
+        return res.status(404).json({ message: "Matricula nao encontrada" });
+      }
+
+      if (user.role === "teacher") {
+        const hasCourseAccess = await canTeacherManageCourse(user.id, existingEnrollment.courseId);
+        const hasSectionAccess = existingEnrollment.classSectionId
+          ? await canTeacherManageClassSection(user.id, existingEnrollment.classSectionId)
+          : true;
+
+        if (!hasCourseAccess || !hasSectionAccess) {
+          return res.status(403).json({ message: "Professor nao possui acesso para editar esta matricula" });
+        }
+      }
+
       const input = api.enrollments.update.input.parse(req.body);
-      const enrollment = await storage.updateEnrollment(enrollmentId, input);
+      const enrollment = await storage.updateEnrollment(
+        enrollmentId,
+        input,
+        user.id,
+        "Atualizacao de matricula via painel",
+      );
       return res.json(enrollment);
     } catch (error) {
       return handleRouteError(res, error, "Erro ao atualizar matricula");
@@ -451,8 +674,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get(api.announcements.list.path, requireAuth, async (req, res) => {
     const user = getAuthUser(req);
     const courseId = parseOptionalPositiveInt(req.query.courseId);
+    const classSectionId = parseOptionalPositiveInt(req.query.classSectionId);
 
-    const announcements = await storage.getAnnouncementsForUser(user, courseId);
+    const announcements = await storage.getAnnouncementsForUser(user, courseId, classSectionId);
     return res.json(announcements);
   });
 
@@ -461,8 +685,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const user = getAuthUser(req);
       const input = api.announcements.create.input.parse(req.body);
 
-      if (!input.isGlobal && (!input.courseIds || input.courseIds.length === 0)) {
-        return res.status(400).json({ message: "Selecione ao menos um curso para anuncio direcionado" });
+      if (
+        !input.isGlobal &&
+        (!input.courseIds || input.courseIds.length === 0) &&
+        (!input.classSectionIds || input.classSectionIds.length === 0)
+      ) {
+        return res.status(400).json({ message: "Selecione ao menos um curso ou turma para anuncio direcionado" });
+      }
+
+      if (user.role === "teacher" && input.isGlobal) {
+        return res.status(403).json({ message: "Professor nao pode publicar comunicado global" });
+      }
+
+      const dedupedCourseIds = Array.from(new Set(input.courseIds ?? []));
+      const dedupedClassSectionIds = Array.from(new Set(input.classSectionIds ?? []));
+
+      if (user.role === "teacher") {
+        const [teacherCourseIds, teacherSectionIds] = await Promise.all([
+          storage.getTeacherCourseIds(user.id),
+          storage.getTeacherClassSectionIds(user.id),
+        ]);
+
+        const teacherCourseSet = new Set(teacherCourseIds);
+        const teacherSectionSet = new Set(teacherSectionIds);
+
+        const hasInvalidCourse = dedupedCourseIds.some((courseId) => !teacherCourseSet.has(courseId));
+        const hasInvalidSection = dedupedClassSectionIds.some((sectionId) => !teacherSectionSet.has(sectionId));
+
+        if (hasInvalidCourse || hasInvalidSection) {
+          return res
+            .status(403)
+            .json({ message: "Professor so pode publicar comunicado em cursos/turmas sob sua responsabilidade" });
+        }
       }
 
       const announcement = await storage.createAnnouncement({
@@ -471,13 +725,248 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         authorId: user.id,
         isGlobal: input.isGlobal,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-        courseIds: input.isGlobal ? [] : input.courseIds,
+        courseIds: input.isGlobal ? [] : dedupedCourseIds,
+        classSectionIds: input.isGlobal ? [] : dedupedClassSectionIds,
       });
 
       return res.status(201).json(announcement);
     } catch (error) {
       return handleRouteError(res, error, "Erro ao criar comunicado");
     }
+  });
+
+  app.delete(api.announcements.remove.path, requireRoles("admin", "teacher"), async (req, res) => {
+    try {
+      const announcementId = Number(req.params.id);
+      if (!Number.isFinite(announcementId)) {
+        return res.status(400).json({ message: "Comunicado invalido" });
+      }
+
+      const user = getAuthUser(req);
+      const announcement = await storage.getAnnouncementById(announcementId);
+      if (!announcement) {
+        return res.status(404).json({ message: "Comunicado nao encontrado" });
+      }
+
+      if (user.role === "teacher") {
+        if (announcement.isGlobal) {
+          return res.status(403).json({ message: "Professor nao pode excluir comunicado global" });
+        }
+
+        const [teacherCourseIds, teacherSectionIds] = await Promise.all([
+          storage.getTeacherCourseIds(user.id),
+          storage.getTeacherClassSectionIds(user.id),
+        ]);
+
+        const teacherCourseSet = new Set(teacherCourseIds);
+        const teacherSectionSet = new Set(teacherSectionIds);
+
+        const hasInvalidCourse = (announcement.courseIds ?? []).some((courseId) => !teacherCourseSet.has(courseId));
+        const hasInvalidSection = (announcement.classSectionIds ?? []).some(
+          (sectionId) => !teacherSectionSet.has(sectionId),
+        );
+
+        if (hasInvalidCourse || hasInvalidSection) {
+          return res.status(403).json({ message: "Professor so pode excluir comunicados do proprio escopo" });
+        }
+      }
+
+      await storage.deleteAnnouncement(announcementId);
+      return res.json({ message: "Comunicado excluido com sucesso" });
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao excluir comunicado");
+    }
+  });
+
+  app.get(api.materials.list.path, requireRoles("student", "teacher"), async (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const materials = await storage.getMaterialsForUser(user);
+      return res.json(materials.map((material) => buildMaterialApiResponse(material)));
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao listar materiais");
+    }
+  });
+
+  app.post(
+    api.materials.upload.path,
+    requireRoles("teacher"),
+    materialUpload.single("file"),
+    async (req, res) => {
+      try {
+        const user = getAuthUser(req);
+        const input = api.materials.upload.input.parse(req.body);
+        const file = req.file;
+
+        if (!file) {
+          return res.status(400).json({ message: "Arquivo obrigatorio" });
+        }
+
+        const originalName = sanitizeOriginalFileName(file.originalname);
+        const fileExtension = path.extname(originalName).toLowerCase();
+
+        if (!allowedMaterialMimeTypes.has(file.mimetype) || !allowedMaterialExtensions.has(fileExtension)) {
+          return res.status(400).json({ message: "Tipo de arquivo nao permitido" });
+        }
+
+        const canManageSection = await canTeacherManageClassSection(user.id, input.classSectionId);
+        if (!canManageSection) {
+          return res.status(403).json({ message: "Professor nao possui acesso para enviar arquivo nesta turma" });
+        }
+
+        const allowedSections = await storage.getClassSectionsForUser(user);
+        const selectedSection = allowedSections.find((section) => section.id === input.classSectionId);
+        const allowedCourses = await storage.getCoursesForUser(user);
+        const selectedCourse = allowedCourses.find((course) => course.id === selectedSection?.courseId);
+
+        if (!selectedSection) {
+          return res.status(403).json({ message: "Turma invalida para upload" });
+        }
+
+        await fs.mkdir(MATERIAL_STORAGE_DIR, { recursive: true });
+
+        const internalName = `${Date.now()}-${randomUUID()}${fileExtension}`;
+        const storagePath = path.join("materials", internalName);
+        const absolutePath = path.join(MATERIAL_STORAGE_DIR, internalName);
+        await fs.writeFile(absolutePath, file.buffer);
+
+        const createdMaterial = await storage.createMaterial({
+          originalName,
+          internalName,
+          storagePath,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          authorId: user.id,
+          courseId: selectedSection.courseId,
+          classSectionId: selectedSection.id,
+          issuedAt: input.issuedAt ? new Date(input.issuedAt) : new Date(),
+        });
+
+        const response = buildMaterialApiResponse({
+          ...createdMaterial,
+          authorName: user.name,
+          courseName: selectedCourse?.name,
+          classSectionCode: selectedSection.code,
+          classSectionName: selectedSection.name,
+          isPinned: false,
+        });
+
+        return res.status(201).json(response);
+      } catch (error) {
+        if (error instanceof multer.MulterError) {
+          if (error.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({ message: "Arquivo excede o tamanho maximo permitido" });
+          }
+          return res.status(400).json({ message: "Falha no upload do arquivo" });
+        }
+
+        return handleRouteError(res, error, "Erro ao enviar material");
+      }
+    },
+  );
+
+  app.get(api.materials.download.path, requireRoles("student", "teacher"), async (req, res) => {
+    try {
+      const materialId = Number(req.params.id);
+      if (!Number.isFinite(materialId)) {
+        return res.status(400).json({ message: "Material invalido" });
+      }
+
+      const user = getAuthUser(req);
+      const material = await storage.getMaterialById(materialId);
+      if (!material) {
+        return res.status(404).json({ message: "Material nao encontrado" });
+      }
+
+      const authorized = await storage.canUserAccessMaterial(user, material);
+      if (!authorized) {
+        return res.status(403).json({ message: "Acesso negado ao material solicitado" });
+      }
+
+      const safeInternalName = path.basename(material.internalName);
+      const absolutePath = path.resolve(MATERIAL_STORAGE_DIR, safeInternalName);
+
+      if (!absolutePath.startsWith(MATERIAL_STORAGE_DIR)) {
+        return res.status(403).json({ message: "Caminho de arquivo invalido" });
+      }
+
+      await fs.access(absolutePath);
+      return res.download(absolutePath, material.originalName);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+        return res.status(404).json({ message: "Arquivo nao encontrado no storage" });
+      }
+
+      return handleRouteError(res, error, "Erro ao baixar material");
+    }
+  });
+
+  app.post(api.materials.pin.path, requireRoles("student", "teacher"), async (req, res) => {
+    try {
+      const materialId = Number(req.params.id);
+      if (!Number.isFinite(materialId)) {
+        return res.status(400).json({ message: "Material invalido" });
+      }
+
+      const user = getAuthUser(req);
+      const material = await storage.getMaterialById(materialId);
+      if (!material) {
+        return res.status(404).json({ message: "Material nao encontrado" });
+      }
+
+      const authorized = await storage.canUserAccessMaterial(user, material);
+      if (!authorized) {
+        return res.status(403).json({ message: "Acesso negado ao material solicitado" });
+      }
+
+      await storage.pinMaterial(user.id, materialId);
+      return res.json({ message: "Material fixado com sucesso" });
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao fixar material");
+    }
+  });
+
+  app.delete(api.materials.unpin.path, requireRoles("student", "teacher"), async (req, res) => {
+    try {
+      const materialId = Number(req.params.id);
+      if (!Number.isFinite(materialId)) {
+        return res.status(400).json({ message: "Material invalido" });
+      }
+
+      const user = getAuthUser(req);
+      const material = await storage.getMaterialById(materialId);
+      if (!material) {
+        return res.status(404).json({ message: "Material nao encontrado" });
+      }
+
+      const authorized = await storage.canUserAccessMaterial(user, material);
+      if (!authorized) {
+        return res.status(403).json({ message: "Acesso negado ao material solicitado" });
+      }
+
+      await storage.unpinMaterial(user.id, materialId);
+      return res.json({ message: "Material desfixado com sucesso" });
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao desfixar material");
+    }
+  });
+
+  app.get(api.notifications.list.path, requireAuth, async (req, res) => {
+    const user = getAuthUser(req);
+    const unreadOnly = String(req.query.unreadOnly ?? "").toLowerCase() === "true";
+    const notifications = await storage.getNotificationsForUser(user.id, unreadOnly);
+    return res.json(notifications);
+  });
+
+  app.post(api.notifications.markRead.path, requireAuth, async (req, res) => {
+    const notificationId = Number(req.params.id);
+    if (!Number.isFinite(notificationId)) {
+      return res.status(400).json({ message: "Notificacao invalida" });
+    }
+
+    const user = getAuthUser(req);
+    await storage.markNotificationRead(notificationId, user.id);
+    return res.json({ message: "Notificacao marcada como lida" });
   });
 
   app.get(api.dashboard.get.path, requireAuth, async (req, res) => {
@@ -493,7 +982,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const activeStudents = students.length;
       const estimatedRevenue = activeStudents * 850;
-      const avgAttendance =
+      const avgAbsences =
         allEnrollments.length > 0
           ? Math.round(
               allEnrollments.reduce((sum, item) => sum + (item.attendance ?? 0), 0) / allEnrollments.length,
@@ -504,7 +993,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         role: user.role,
         cards: [
           { label: "Feedback financeiro", value: `R$ ${estimatedRevenue.toLocaleString("pt-BR")}` },
-          { label: "Presenca media", value: `${avgAttendance}%` },
+          { label: "Faltas medias", value: String(avgAbsences) },
           { label: "Cursos ativos", value: String(allCourses.length) },
           { label: "Comunicados ativos", value: String(announcements.length) },
         ],
@@ -535,14 +1024,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      const avgGrade = gradeCount > 0 ? Math.round(gradeSum / gradeCount) : 0;
+      const avgGrade = gradeCount > 0 ? Number((gradeSum / gradeCount).toFixed(1)) : 0;
 
       return res.json({
         role: user.role,
         cards: [
           { label: "Aulas no horario", value: String(teacherCourses.length) },
           { label: "Alunos acompanhados", value: String(teacherEnrollmentCount) },
-          { label: "Media de notas", value: `${avgGrade}%` },
+          { label: "Media de notas (0-10)", value: String(avgGrade) },
           { label: "Comunicados", value: String(announcements.length) },
         ],
       });
@@ -554,7 +1043,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     ]);
 
     const topGrade = Math.max(...studentEnrollments.map((item) => item.grade ?? 0), 0);
-    const avgAttendance =
+    const avgAbsences =
       studentEnrollments.length > 0
         ? Math.round(
             studentEnrollments.reduce((sum, item) => sum + (item.attendance ?? 0), 0) / studentEnrollments.length,
@@ -565,8 +1054,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       role: user.role,
       cards: [
         { label: "Horarios cadastrados", value: String(studentEnrollments.length) },
-        { label: "Presenca individual", value: `${avgAttendance}%` },
-        { label: "Destaque de nota", value: `${topGrade}%` },
+        { label: "Faltas medias", value: String(avgAbsences) },
+        { label: "Melhor nota (0-10)", value: String(topGrade) },
         { label: "Comunicados", value: String(announcements.length) },
       ],
     });

@@ -119,8 +119,8 @@ const NebulaBackground = () => {
         this.x = Math.random() * width;
         this.y = Math.random() * height;
         this.radius = Math.random() * 1.5 + 0.5;
-        this.vx = (Math.random() - 0.5) * 0.5;
-        this.vy = (Math.random() - 0.5) * 0.5;
+        this.vx = (Math.random() - 0.5) * 0.7;
+        this.vy = (Math.random() - 0.5) * 0.7;
         const selected = colorPalette[Math.floor(Math.random() * colorPalette.length)];
         const variedColor = jitterRgb(selected.rgb, 14);
         this.colorRGB = variedColor;
@@ -290,7 +290,7 @@ const NebulaBackground = () => {
 
           if (distanceSq < maxDistanceSq) {
             const opacityValue = 1 - distanceSq / maxDistanceSq;
-            ctx.strokeStyle = `rgba(137, 194, 217, ${opacityValue * 0.65})`;
+            ctx.strokeStyle = `rgba(137, 194, 217, ${opacityValue * 0.77})`;
             ctx.lineWidth = 0.7;
             ctx.beginPath();
             ctx.moveTo(particles[a].x, particles[a].y);

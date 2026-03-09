@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@shared/routes";
 import { type z } from "zod";
+import { useLocation } from "wouter";
 import { useToast } from "./use-toast";
+import { clearAuthNavigationState, markLoginNavigation } from "@/lib/auth-navigation";
 
 type LoginInput = z.infer<typeof api.auth.login.input>;
 type ChangePasswordInput = z.infer<typeof api.auth.changePassword.input>;
@@ -14,6 +16,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export function useAuth() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const userQuery = useQuery({
     queryKey: [api.auth.me.path],
@@ -44,6 +47,8 @@ export function useAuth() {
       return api.auth.login.responses[200].parse(await res.json());
     },
     onSuccess: (user) => {
+      clearAuthNavigationState();
+      markLoginNavigation(user.id);
       queryClient.setQueryData([api.auth.me.path], user);
       toast({
         title: "Acesso liberado",
@@ -67,8 +72,10 @@ export function useAuth() {
       });
     },
     onSuccess: () => {
+      clearAuthNavigationState();
       queryClient.setQueryData([api.auth.me.path], null);
       queryClient.clear();
+      setLocation("/login");
     },
   });
 

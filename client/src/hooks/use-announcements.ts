@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
 import { useToast } from "./use-toast";
 
 export function useAnnouncements(courseId?: number) {
@@ -30,6 +30,7 @@ export function useCreateAnnouncement() {
       content: string;
       isGlobal: boolean;
       courseIds?: number[];
+      classSectionIds?: number[];
       expiresAt?: string;
     }) => {
       const res = await fetch(api.announcements.create.path, {
@@ -51,6 +52,37 @@ export function useCreateAnnouncement() {
       toast({
         title: "Erro ao publicar",
         description: error instanceof Error ? error.message : "Falha ao publicar comunicado",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useDeleteAnnouncement() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (announcementId: number) => {
+      const url = buildUrl(api.announcements.remove.path, { id: announcementId });
+      const res = await fetch(url, {
+        method: api.announcements.remove.method,
+        credentials: "include",
+      });
+
+      const payload = await res.json().catch(() => ({ message: "Falha ao excluir comunicado" }));
+      if (!res.ok) throw new Error(payload.message || "Falha ao excluir comunicado");
+      return api.announcements.remove.responses[200].parse(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.announcements.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.notifications.list.path] });
+      toast({ title: "Comunicado excluido", description: "O comunicado foi removido com sucesso." });
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao excluir",
+        description: error instanceof Error ? error.message : "Falha ao excluir comunicado",
         variant: "destructive",
       });
     },

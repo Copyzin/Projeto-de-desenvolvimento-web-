@@ -138,9 +138,11 @@ export default function Courses() {
         />
       </div>
 
-      <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
-        Matricula de alunos centralizada na aba <strong>Alunos</strong>. Nesta tela voce gerencia cursos e grade curricular.
-      </div>
+      {user?.role === "admin" && (
+        <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
+          Matricula de alunos centralizada na aba <strong>Alunos</strong>. Nesta tela voce gerencia cursos e grade curricular.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {isLoading

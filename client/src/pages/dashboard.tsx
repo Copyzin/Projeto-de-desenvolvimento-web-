@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 function pickIcon(label: string) {
   const lower = label.toLowerCase();
   if (lower.includes("financeiro") || lower.includes("r$")) return DollarSign;
-  if (lower.includes("presenca")) return TrendingUp;
+  if (lower.includes("presenca") || lower.includes("falta")) return TrendingUp;
   if (lower.includes("curso")) return BookOpen;
   if (lower.includes("aluno")) return Users;
   if (lower.includes("nota")) return BarChart3;
@@ -125,7 +125,7 @@ export default function Dashboard() {
             <Card>
               <CardHeader>
                 <CardTitle>Meu Horario</CardTitle>
-                <CardDescription>Resumo de aulas e presenca individual.</CardDescription>
+                <CardDescription>Resumo de aulas, faltas e notas.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {studentEnrollments.slice(0, 6).map((item) => (
@@ -135,7 +135,9 @@ export default function Dashboard() {
                     className="p-4 rounded-lg border bg-white"
                   >
                     <p className="font-medium">{item.courseName}</p>
-                    <p className="text-sm text-muted-foreground">Presenca: {item.attendance ?? 0}% | Nota: {item.grade ?? "-"}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Faltas: {item.attendance ?? 0} | Nota (0-10): {item.grade ?? "-"}
+                    </p>
                   </motion.div>
                 ))}
                 {studentEnrollments.length === 0 && (

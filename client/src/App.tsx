@@ -3,15 +3,14 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Loader2 } from "lucide-react";
 import { lazy, Suspense, type ComponentType, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { api } from "@shared/routes";
 import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { LayoutShell } from "@/components/layout-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { LoginTransition } from "@/components/login-transition";
 import { consumeLoginNavigation, consumePanelEntryTransition, markPanelEntryTransition } from "@/lib/auth-navigation";
-
-// Janela curta da microtransicao apos login bem-sucedido.
-const LOGIN_TO_DASHBOARD_TRANSITION_MS = 420;
 
 const Login = lazy(() => import("@/pages/login"));
 const ForgotPassword = lazy(() => import("@/pages/forgot-password"));
@@ -25,6 +24,29 @@ const Announcements = lazy(() => import("@/pages/announcements"));
 const Finances = lazy(() => import("@/pages/finances"));
 const Downloads = lazy(() => import("@/pages/downloads"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+
+const AUTH_FLOW_PATHS = new Set(["/login", "/forgot-password", "/reset-password"]);
+
+async function fetchRouteData<T>(path: string, parser: { parse(value: unknown): T }) {
+  const res = await fetch(path, { credentials: "include" });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({ message: "Falha ao preparar rota" }));
+    throw new Error(payload.message || "Falha ao preparar rota");
+  }
+
+  return parser.parse(await res.json());
+}
+
+function waitForPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function preloadDashboardModule() {
+  // Garante que o chunk lazy do painel ja esteja resolvido antes de liberar o shell.
+  return import("@/pages/dashboard");
+}
 
 function RouteFallback() {
   // Fallback visual unico usado durante carregamentos lazy/redirect.
@@ -54,15 +76,80 @@ function DashboardWithEntryTransition() {
     return consumePanelEntryTransition(user.id);
   });
 
-  // Encerra a transicao apos o tempo configurado.
   useEffect(() => {
-    if (!showTransition) return;
-    const timer = window.setTimeout(() => setShowTransition(false), LOGIN_TO_DASHBOARD_TRANSITION_MS);
-    return () => window.clearTimeout(timer);
-  }, [showTransition]);
+    if (!showTransition || !user) return;
+
+    let cancelled = false;
+    const authUser = user;
+
+    async function prepareDashboardView() {
+      const preloadTasks: Promise<unknown>[] = [
+        preloadDashboardModule(),
+        queryClient.fetchQuery({
+          queryKey: [api.dashboard.get.path],
+          queryFn: () => fetchRouteData(api.dashboard.get.path, api.dashboard.get.responses[200]),
+        }),
+        queryClient.fetchQuery({
+          queryKey: [api.notifications.list.path, true],
+          queryFn: async () => {
+            const url = new URL(api.notifications.list.path, window.location.origin);
+            url.searchParams.set("unreadOnly", "true");
+            return fetchRouteData(url.toString(), api.notifications.list.responses[200]);
+          },
+        }),
+      ];
+
+      if (authUser.role === "student") {
+        const enrollmentsUrl = new URL(api.enrollments.list.path, window.location.origin);
+        enrollmentsUrl.searchParams.set("studentId", String(authUser.id));
+
+        preloadTasks.push(
+          queryClient.fetchQuery({
+            queryKey: [api.enrollments.list.path, { studentId: authUser.id }],
+            queryFn: () =>
+              fetchRouteData(enrollmentsUrl.toString(), api.enrollments.list.responses[200]),
+          }),
+        );
+      } else {
+        preloadTasks.push(
+          queryClient.fetchQuery({
+            queryKey: [api.courses.list.path],
+            queryFn: () => fetchRouteData(api.courses.list.path, api.courses.list.responses[200]),
+          }),
+        );
+      }
+
+      await Promise.allSettled(preloadTasks);
+      await waitForPaint();
+      await waitForPaint();
+
+      if (!cancelled) {
+        setShowTransition(false);
+      }
+    }
+
+    // Mantemos o overlay apenas enquanto os dados minimos do painel chegam
+    // e o navegador tem pelo menos um paint estavel para montar o layout final.
+    void prepareDashboardView();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showTransition, user]);
 
   if (showTransition) {
-    return <LoginTransition />;
+    return (
+      <>
+        <Suspense fallback={null}>
+          <div className="pointer-events-none opacity-0" aria-hidden="true">
+            <LayoutShell>
+              <Dashboard />
+            </LayoutShell>
+          </div>
+        </Suspense>
+        <LoginTransition />
+      </>
+    );
   }
 
   return (
@@ -156,39 +243,67 @@ function DashboardRoute() {
   return <DashboardWithEntryTransition />;
 }
 
+function AuthFlowRoutes({ location }: { location: string }) {
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={location}
+        className="min-h-screen w-full overflow-x-hidden"
+        initial={{ opacity: 0, x: 18 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -18 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <Switch location={location}>
+          <Route path="/login" component={Login} />
+          <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/reset-password" component={ResetPassword} />
+        </Switch>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 function Router() {
+  const [location] = useLocation();
+  const isAuthFlowRoute = AUTH_FLOW_PATHS.has(location);
+
   return (
     <Suspense fallback={<RouteFallback />}>
       {/* Observador global de sessao para decidir redirecionamento pos-login. */}
       <AuthSessionNavigator />
-      <Switch>
-        {/* Rotas publicas */}
-        <Route path="/login" component={Login} />
-        <Route path="/forgot-password" component={ForgotPassword} />
-        <Route path="/reset-password" component={ResetPassword} />
-        <Route path="/reset-password/cancel" component={ResetPasswordCancel} />
+      {isAuthFlowRoute ? (
+        <AuthFlowRoutes location={location} />
+      ) : (
+        <Switch>
+          {/* Rotas publicas */}
+          <Route path="/login" component={Login} />
+          <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/reset-password" component={ResetPassword} />
+          <Route path="/reset-password/cancel" component={ResetPasswordCancel} />
 
-        {/* Rotas autenticadas */}
-        <Route path="/" component={DashboardRoute} />
-        <Route path="/courses" component={() => <ProtectedRoute component={Courses} />} />
-        <Route path="/courses/:id" component={() => <ProtectedRoute component={CourseDetail} />} />
-        <Route
-          path="/students"
-          component={() => <ProtectedRoute component={Students} allowedRoles={["admin", "teacher"]} />}
-        />
-        <Route path="/announcements" component={() => <ProtectedRoute component={Announcements} />} />
-        <Route
-          path="/finances"
-          component={() => <ProtectedRoute component={Finances} allowedRoles={["admin", "student"]} />}
-        />
-        <Route
-          path="/downloads"
-          component={() => <ProtectedRoute component={Downloads} allowedRoles={["teacher", "student"]} />}
-        />
+          {/* Rotas autenticadas */}
+          <Route path="/" component={DashboardRoute} />
+          <Route path="/courses" component={() => <ProtectedRoute component={Courses} />} />
+          <Route path="/courses/:id" component={() => <ProtectedRoute component={CourseDetail} />} />
+          <Route
+            path="/students"
+            component={() => <ProtectedRoute component={Students} allowedRoles={["admin", "teacher"]} />}
+          />
+          <Route path="/announcements" component={() => <ProtectedRoute component={Announcements} />} />
+          <Route
+            path="/finances"
+            component={() => <ProtectedRoute component={Finances} allowedRoles={["admin", "student"]} />}
+          />
+          <Route
+            path="/downloads"
+            component={() => <ProtectedRoute component={Downloads} allowedRoles={["teacher", "student"]} />}
+          />
 
-        {/* Fallback final com tratamento especial para usuario autenticado. */}
-        <Route component={NotFoundOrDashboard} />
-      </Switch>
+          {/* Fallback final com tratamento especial para usuario autenticado. */}
+          <Route component={NotFoundOrDashboard} />
+        </Switch>
+      )}
     </Suspense>
   );
 }

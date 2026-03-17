@@ -2,343 +2,200 @@ import { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 const NebulaBackground = () => {
-  // Referencia para acessar o elemento canvas diretamente.
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    const ctx: CanvasRenderingContext2D = context;
-
-    // Mantem tamanho do canvas sincronizado com a janela.
+    const ctx = canvas.getContext('2d', { alpha: false })!; 
     let width = (canvas.width = window.innerWidth);
     let height = (canvas.height = window.innerHeight);
 
-    // Posicao inicial do mouse (centro da tela) para dirigir o efeito de luz/interacao.
     let mouse = { x: width / 2, y: height / 2 };
+    let oppositeMouse = { x: width / 2, y: height / 2 };
 
-    type RGB = { r: number; g: number; b: number };
-    type RGBA = { r: number; g: number; b: number; a: number };
-
-    const hexToRgb = (hex: string): RGB => {
-      const normalized = hex.replace('#', '');
-      const intValue = Number.parseInt(normalized, 16);
-      return {
-        r: (intValue >> 16) & 255,
-        g: (intValue >> 8) & 255,
-        b: intValue & 255,
-      };
+    const hexToRgb = (hex: string) => {
+      const intValue = Number.parseInt(hex.replace('#', ''), 16);
+      return { r: (intValue >> 16) & 255, g: (intValue >> 8) & 255, b: intValue & 255 };
     };
 
-    const luminance = (color: RGB): number => {
-      return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255;
-    };
+    const baseParticleColors = ['#0A2463', '#3E92CC', '#8B2682', '#D8315B', '#FFFAFF'];
+    const colorPalette = baseParticleColors.map(hex => ({ rgb: hexToRgb(hex) }));
 
-    const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+    let bgInner = { r: 10, g: 15, b: 35, a: 1 };
+    let bgOuter = { r: 2, g: 5, b: 15, a: 1 };
 
-    const rgbString = (color: RGB): string =>
-      `rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`;
-
-    const jitterRgb = (color: RGB, amount: number): RGB => ({
-      r: clamp(color.r + (Math.random() - 0.5) * amount * 2, 0, 255),
-      g: clamp(color.g + (Math.random() - 0.5) * amount * 2, 0, 255),
-      b: clamp(color.b + (Math.random() - 0.5) * amount * 2, 0, 255),
-    });
-
-    const mixValue = (from: number, to: number, t: number): number => from + (to - from) * t;
-
-    const mixColor = (from: RGB, to: RGB, t: number): RGB => ({
-      r: mixValue(from.r, to.r, t),
-      g: mixValue(from.g, to.g, t),
-      b: mixValue(from.b, to.b, t),
-    });
-
-    const lerpRgba = (from: RGBA, to: RGBA, t: number): RGBA => ({
-      r: mixValue(from.r, to.r, t),
-      g: mixValue(from.g, to.g, t),
-      b: mixValue(from.b, to.b, t),
-      a: mixValue(from.a, to.a, t),
-    });
-
-    const rgbaString = (color: RGBA): string =>
-      `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${color.a})`;
-
-    // Paleta mais ampla com tons frios e quentes para dar variedade sem perder harmonia.
-    const baseParticleColors = [
-      '#05172A',
-      '#0D2A45',
-      '#154469',
-      '#1F6788',
-      '#2D8AA6',
-      '#5CB8BF',
-      '#90D3CC',
-      '#D9ECEE',
-      '#F1E5CC',
-      '#F5C989',
-      '#ECA16E',
-      '#D87664',
-      '#C95E6A',
-      '#BFD2E0',
-      '#8FB1C9',
-      '#6C93B2',
-    ];
-
-    const colorPalette = baseParticleColors.map((hex) => {
-      const rgb = hexToRgb(hex);
-      return {
-        hex,
-        rgb,
-        lum: luminance(rgb),
-      };
-    });
-
-    // Estado dinamico do fundo para transicao suave entre tons claros/escuros.
-    let bgInner: RGBA = { r: 20, g: 40, b: 66, a: 0.32 };
-    let bgOuter: RGBA = { r: 8, g: 22, b: 40, a: 0.14 };
-    let targetBgInner: RGBA = { ...bgInner };
-    let targetBgOuter: RGBA = { ...bgOuter };
-    let frameTick = 0;
-    let animationFrameId: number | undefined;
-
-    // Cada Particle representa um ponto luminoso na nebulosa.
     class Particle {
-      x: number;
-      y: number;
-      radius: number;
-      vx: number;
-      vy: number;
-      color: string;
-      colorRGB: RGB;
-      colorLum: number;
+      x: number; y: number; vx: number; vy: number; baseRadius: number; colorRGB: any; baseAlpha: number;
 
       constructor() {
-        // Cria a particula em posicao aleatoria com velocidade e cor aleatorias.
         this.x = Math.random() * width;
         this.y = Math.random() * height;
-        this.radius = Math.random() * 1.5 + 0.5;
-        this.vx = (Math.random() - 0.5) * 0.7;
-        this.vy = (Math.random() - 0.5) * 0.7;
-        const selected = colorPalette[Math.floor(Math.random() * colorPalette.length)];
-        const variedColor = jitterRgb(selected.rgb, 14);
-        this.colorRGB = variedColor;
-        this.colorLum = luminance(variedColor);
-        this.color = rgbString(variedColor);
+        this.baseRadius = Math.random() * 1.2 + 0.3; 
+        
+        // Nascem mais lentas
+        this.vx = (Math.random() - 0.5) * 0.4;   
+        this.vy = (Math.random() - 0.5) * 0.4;   
+        
+        this.colorRGB = colorPalette[Math.floor(Math.random() * colorPalette.length)].rgb;
+        this.baseAlpha = Math.random() * 0.6 + 0.4;
       }
 
       update() {
-        // Aplica uma repulsao suave do mouse alterando velocidade (evita flicker).
-        const dx = this.x - mouse.x;
-        const dy = this.y - mouse.y;
-        const distSq = dx * dx + dy * dy;
-        const mouseInfluence = 140;
-        const mouseInfluenceSq = mouseInfluence * mouseInfluence;
-
-        if (distSq < mouseInfluenceSq) {
-          const dist = Math.sqrt(distSq);
-          const safeDist = Math.max(dist, 1);
-          const pushStrength = (1 - safeDist / mouseInfluence) * 0.18;
-          this.vx += (dx / safeDist) * pushStrength;
-          this.vy += (dy / safeDist) * pushStrength;
+        const dxMouse = this.x - mouse.x;
+        const dyMouse = this.y - mouse.y;
+        const distSqToMouse = dxMouse * dxMouse + dyMouse * dyMouse;
+        
+        if (distSqToMouse < 19600) { 
+          const dist = Math.sqrt(distSqToMouse);
+          // Empurrão do mouse reduzido pela metade (de 0.03 para 0.015)
+          const push = (1 - dist / 140) * 0.015; 
+          this.vx += (dxMouse / dist) * push;
+          this.vy += (dyMouse / dist) * push;
         }
 
-        // Mantem uma velocidade maxima para evitar saltos bruscos.
-        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        const maxSpeed = 1.2;
-        if (speed > maxSpeed) {
-          this.vx = (this.vx / speed) * maxSpeed;
-          this.vy = (this.vy / speed) * maxSpeed;
+        // Movimento orgânico (drift) mais suave
+        this.vx += (Math.random() - 0.5) * 0.008;
+        this.vy += (Math.random() - 0.5) * 0.008;
+        this.vx *= 0.99; 
+        this.vy *= 0.99;
+
+        const speedSq = this.vx * this.vx + this.vy * this.vy;
+        
+        // VELOCIDADES REDUZIDAS (Relaxamento)
+        // Mínimo de 0.08 (antes era 0.15) e Máximo de 0.5 (antes era 1.2)
+        if (speedSq < 0.0064) { // 0.08^2
+          const speed = Math.sqrt(speedSq);
+          this.vx = (this.vx / speed) * 0.08;
+          this.vy = (this.vy / speed) * 0.08;
+        } else if (speedSq > 0.25) { // 0.5^2
+          const speed = Math.sqrt(speedSq);
+          this.vx = (this.vx / speed) * 0.5;
+          this.vy = (this.vy / speed) * 0.5;
         }
 
-        // Move particula, rebate nas bordas e aplica amortecimento.
         this.x += this.vx;
         this.y += this.vy;
 
         if (this.x < 0 || this.x > width) this.vx *= -1;
         if (this.y < 0 || this.y > height) this.vy *= -1;
-
-        this.vx *= 0.99;
-        this.vy *= 0.99;
-
-        // Evita que a velocidade chegue a zero. Quando quase para, recebe um impulso leve e aleatorio.
-        const speedAfterDamping = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        const minSpeed = 0.04;
-        if (speedAfterDamping < minSpeed) {
-          const hasDirection = speedAfterDamping > 0.001;
-          const baseAngle = hasDirection ? Math.atan2(this.vy, this.vx) : Math.random() * Math.PI * 2;
-          const angle = baseAngle + (Math.random() - 0.5) * 0.45;
-          const impulse = 0.035;
-          this.vx += Math.cos(angle) * impulse;
-          this.vy += Math.sin(angle) * impulse;
-        }
-
-        // Reaplica limite maximo apos o impulso.
-        const finalSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        if (finalSpeed > maxSpeed) {
-          this.vx = (this.vx / finalSpeed) * maxSpeed;
-          this.vy = (this.vy / finalSpeed) * maxSpeed;
-        }
       }
 
       draw() {
-        // Desenha a particula atual no canvas.
+        const dx = this.x - mouse.x;
+        const dy = this.y - mouse.y;
+        const distToMouse = Math.sqrt(dx * dx + dy * dy);
+        
+        let focusFactor = Math.max(0, 1 - distToMouse / 350);
+        focusFactor = focusFactor * focusFactor; 
+
+        const currentAlpha = this.baseAlpha * 0.30 + (this.baseAlpha * 0.70 * focusFactor);
+        const currentRadius = this.baseRadius + (1 - focusFactor) * 1.2;
+
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
+        ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${this.colorRGB.r}, ${this.colorRGB.g}, ${this.colorRGB.b}, ${currentAlpha})`;
         ctx.fill();
       }
     }
 
-    // Quantidade de particulas proporcional ao tamanho da tela.
     let particles: Particle[] = [];
-
-    // Reinicializa o array de particulas.
-    function init() {
+    
+    // SISTEMA DE LOD BASEADO EM QUANTIDADE MÁXIMA
+    const init = () => {
       particles = [];
-      const particleCount = Math.floor((width * height) / 6000);
-      for (let i = 0; i < particleCount; i++) {
+      const requestedCount = Math.floor((width * height) / 7000); 
+      
+      // Condição de Segurança: Limite Máximo de 250
+      let finalCount = requestedCount;
+      if (requestedCount >= 250) {
+        finalCount = 250;
+      }
+
+      for (let i = 0; i < finalCount; i++) {
         particles.push(new Particle());
       }
-    }
+    };
 
-    // Calcula cor alvo do fundo a partir da media das particulas para manter contraste macro.
-    function updateBackgroundTarget() {
-      if (particles.length === 0) return;
-
-      const sampleCount = Math.min(90, particles.length);
-      let sumR = 0;
-      let sumG = 0;
-      let sumB = 0;
-      let sumLum = 0;
-
-      for (let i = 0; i < sampleCount; i++) {
-        const particle = particles[Math.floor(Math.random() * particles.length)];
-        sumR += particle.colorRGB.r;
-        sumG += particle.colorRGB.g;
-        sumB += particle.colorRGB.b;
-        sumLum += particle.colorLum;
-      }
-
-      const avgColor: RGB = {
-        r: sumR / sampleCount,
-        g: sumG / sampleCount,
-        b: sumB / sampleCount,
-      };
-      const avgLum = sumLum / sampleCount;
-
-      // Base complementar para diferenciar o fundo das particulas sem ficar agressivo.
-      const complementary: RGB = {
-        r: 255 - avgColor.r,
-        g: 255 - avgColor.g,
-        b: 255 - avgColor.b,
-      };
-      const softenedComplementary = mixColor(complementary, { r: 134, g: 146, b: 156 }, 0.35);
-
-      const particlesAreDark = avgLum < 0.5;
-
-      if (particlesAreDark) {
-        const inner = mixColor(softenedComplementary, { r: 246, g: 250, b: 253 }, 0.62);
-        const outer = mixColor(softenedComplementary, { r: 214, g: 228, b: 238 }, 0.48);
-        targetBgInner = { ...inner, a: 0.36 };
-        targetBgOuter = { ...outer, a: 0.18 };
-      } else {
-        const inner = mixColor(softenedComplementary, { r: 12, g: 24, b: 42 }, 0.68);
-        const outer = mixColor(softenedComplementary, { r: 22, g: 44, b: 68 }, 0.56);
-        targetBgInner = { ...inner, a: 0.32 };
-        targetBgOuter = { ...outer, a: 0.14 };
-      }
-    }
-
-    // Loop principal da animacao: limpa, pinta fundo, atualiza/desenha particulas e conecta pontos.
-    function animate() {
-      animationFrameId = requestAnimationFrame(animate);
-      ctx.clearRect(0, 0, width, height);
-
-      // Atualiza alvo de cor em intervalos e aplica transicao suave quadro a quadro.
-      frameTick += 1;
-      if (frameTick % 24 === 0) updateBackgroundTarget();
-      bgInner = lerpRgba(bgInner, targetBgInner, 0.02);
-      bgOuter = lerpRgba(bgOuter, targetBgOuter, 0.02);
-
-      // Fundo em gradiente radial que acompanha o mouse e varia conforme a nuvem de particulas.
-      const gradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, Math.max(width, height));
-      gradient.addColorStop(0, rgbaString(bgInner));
-      gradient.addColorStop(1, rgbaString(bgOuter));
-      ctx.fillStyle = gradient;
+    const animate = () => {
+      const mainGrad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, width * 0.6);
+      mainGrad.addColorStop(0, `rgb(${bgInner.r}, ${bgInner.g}, ${bgInner.b})`);
+      mainGrad.addColorStop(1, `rgb(${bgOuter.r}, ${bgOuter.g}, ${bgOuter.b})`);
+      ctx.fillStyle = mainGrad;
       ctx.fillRect(0, 0, width, height);
 
-      particles.forEach(p => {
-        p.update();
-        p.draw();
-      });
+      oppositeMouse.x = width - mouse.x;
+      oppositeMouse.y = height - mouse.y;
+      const oppGrad = ctx.createRadialGradient(oppositeMouse.x, oppositeMouse.y, 0, oppositeMouse.x, oppositeMouse.y, width * 0.5);
+      oppGrad.addColorStop(0, `rgba(120, 40, 180, 0.08)`); 
+      oppGrad.addColorStop(0.5, `rgba(60, 20, 100, 0.03)`); 
+      oppGrad.addColorStop(1, `rgba(0, 0, 0, 0)`);
+      
+      ctx.globalCompositeOperation = 'screen'; 
+      ctx.fillStyle = oppGrad;
+      ctx.fillRect(0, 0, width, height);
+      ctx.globalCompositeOperation = 'source-over'; 
 
+      particles.forEach(p => { p.update(); p.draw(); });
       connect();
-    }
+      
+      requestAnimationFrame(animate);
+    };
 
-    // Liga particulas proximas com linhas semitransparentes.
-    function connect() {
-      const maxDistance = 170;
-      const maxDistanceSq = maxDistance * maxDistance;
-
+    const connect = () => {
+      const maxDistanceSq = 140 * 140; 
+      
       for (let a = 0; a < particles.length; a++) {
         for (let b = a + 1; b < particles.length; b++) {
           const dx = particles[a].x - particles[b].x;
           const dy = particles[a].y - particles[b].y;
-          const distanceSq = dx * dx + dy * dy;
+          const distSq = dx * dx + dy * dy;
+          
+          if (distSq < maxDistanceSq) {
+            const midX = (particles[a].x + particles[b].x) / 2;
+            const midY = (particles[a].y + particles[b].y) / 2;
+            const distToMouse = Math.sqrt((midX - mouse.x)**2 + (midY - mouse.y)**2);
+            
+            let focusFactor = Math.max(0, 1 - distToMouse / 350);
+            focusFactor = focusFactor * focusFactor;
 
-          if (distanceSq < maxDistanceSq) {
-            const opacityValue = 1 - distanceSq / maxDistanceSq;
-            ctx.strokeStyle = `rgba(137, 194, 217, ${opacityValue * 0.77})`;
-            ctx.lineWidth = 0.7;
-            ctx.beginPath();
-            ctx.moveTo(particles[a].x, particles[a].y);
-            ctx.lineTo(particles[b].x, particles[b].y);
-            ctx.stroke();
+            const distanceRatio = 1 - Math.sqrt(distSq) / 140;
+            
+            const finalOpacity = (distanceRatio * 0.10) + (distanceRatio * 0.6 * focusFactor);
+            
+            if (finalOpacity > 0.01) {
+              const hue = 190 + ((particles[a].x + particles[b].y) % 30);
+              
+              ctx.strokeStyle = `hsla(${hue}, 80%, 65%, ${finalOpacity})`;
+              ctx.lineWidth = 0.6 + (focusFactor * 0.4); 
+              ctx.beginPath();
+              ctx.moveTo(particles[a].x, particles[a].y);
+              ctx.lineTo(particles[b].x, particles[b].y);
+              ctx.stroke();
+            }
           }
         }
       }
-    }
-
-    // Atualiza a posicao do mouse para controlar interacao e gradiente.
-    const handleMouseMove = (e: MouseEvent) => {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
     };
 
-    // Recalcula tamanho e particulas quando a janela muda.
-    const handleResize = () => {
-      width = canvas!.width = window.innerWidth;
-      height = canvas!.height = window.innerHeight;
-      init();
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+    window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; init(); });
 
     init();
     animate();
-
-    // Limpeza de listeners para evitar vazamento de memoria ao desmontar.
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('resize', handleResize);
-    };
   }, []);
 
   return (
-    // Canvas com fade-in suave usando framer-motion.
-    <motion.canvas
-      ref={canvasRef}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 1.5 }}
-      className="absolute top-0 left-0 w-full h-full -z-10"
-    />
+    <div className="fixed inset-0 -z-10 bg-[#020617]">
+      <motion.canvas 
+        ref={canvasRef} 
+        className="w-full h-full"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.5, ease: "easeOut" }}
+      />
+    </div>
   );
 };
 

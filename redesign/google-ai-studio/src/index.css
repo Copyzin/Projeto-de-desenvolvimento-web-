@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: #1a2b4b;
+  --color-secondary: #546e7a;
+  --color-background: #f8f9fa;
+  --color-surface-low: #f1f3f5;
+  --color-surface: #e9ecef;
+  --color-surface-lowest: #ffffff;
+  --color-accent-blue: #3b4b6b;
+  --color-accent-red: #e63946;
+  --color-accent-green: #2a9d8f;
+  --color-admin-sidebar: #f0f2f5;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-primary font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-display font-bold tracking-tight;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#545e76] text-white px-6 py-3 rounded-md font-bold text-xs uppercase tracking-widest shadow-sm hover:bg-[#454d61] transition-all active:scale-[0.98] disabled:opacity-50;
+  }
+  
+  .btn-secondary {
+    @apply bg-surface text-primary px-6 py-3 rounded-md font-bold text-xs uppercase tracking-widest hover:bg-surface-low transition-all active:scale-[0.98];
+  }
+  
+  .card-academic {
+    @apply bg-surface-lowest border border-[#e2e8f0] shadow-sm rounded-xl p-6;
+  }
+  
+  .stepper-item {
+    @apply flex items-center gap-3 text-sm font-medium transition-all;
+  }
+  
+  .stepper-circle {
+    @apply w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all font-bold;
+  }
+
+  .input-academic {
+    @apply w-full bg-surface-low border border-[#e2e8f0] rounded-lg px-4 py-3 text-sm font-medium text-primary outline-none focus:border-accent-blue/40 transition-all;
+  }
+}

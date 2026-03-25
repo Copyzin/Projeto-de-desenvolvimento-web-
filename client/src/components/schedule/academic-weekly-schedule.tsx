@@ -31,7 +31,7 @@ interface AcademicWeeklyScheduleProps {
 
 export function AcademicWeeklySchedule(props: AcademicWeeklyScheduleProps) {
   return (
-    <div className="max-w-[1200px] mx-auto overflow-x-auto rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-sm">
+    <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm sm:p-6">
       <ScheduleHeader
         title={props.title}
         subtitle={props.subtitle}

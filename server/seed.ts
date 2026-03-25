@@ -1,4 +1,5 @@
 import { hashPassword } from "./auth";
+import { ensureReproducibleSeedSupport } from "./reproducible-seed";
 import { storage } from "./storage";
 
 type SubjectSeed = {
@@ -218,7 +219,10 @@ function attendanceFor(status: EnrollmentStatus, index: number) {
 
 export async function seedDatabase() {
   const existingUsers = await storage.getUsers();
-  if (existingUsers.length > 0) return;
+  if (existingUsers.length > 0) {
+    await ensureReproducibleSeedSupport();
+    return;
+  }
 
   console.log("Iniciando seed do banco com massa de dados estendida...");
 
@@ -392,6 +396,8 @@ export async function seedDatabase() {
   const firstCourse = createdCourses[0];
   const firstStudent = students[0];
 
+  const reproducibleSupport = await ensureReproducibleSeedSupport();
+
   console.log(
     [
       "Seed concluido com sucesso.",
@@ -403,6 +409,7 @@ export async function seedDatabase() {
       `Alunos: ${students.length}`,
       `Matriculas [active/completed/dropped/locked/canceled]: ${statusCounters.active}/${statusCounters.completed}/${statusCounters.dropped}/${statusCounters.locked}/${statusCounters.canceled}`,
       firstCourse ? `Curso exemplo: ${firstCourse.name}` : undefined,
+      `Professor de teste operacional: ${reproducibleSupport.primaryUsers.teacher.email}`,
       "Credenciais padrao: Admin@12345 | Professor@123 | Aluno@12345",
     ]
       .filter(Boolean)

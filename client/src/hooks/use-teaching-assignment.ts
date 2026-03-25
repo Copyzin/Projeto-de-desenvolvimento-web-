@@ -295,6 +295,8 @@ export function usePublishTeachingAssignments() {
 }
 
 export function useTeachingAssignmentAiAssist() {
+  const { toast } = useToast();
+
   return useMutation({
     mutationFn: async (teacherId: number) => {
       const res = await fetch(api.teachingAssignments.aiAssist.path, {
@@ -305,6 +307,13 @@ export function useTeachingAssignmentAiAssist() {
       });
       const payload = await parseJsonResponse(res, "Falha ao consultar apoio assistivo");
       return api.teachingAssignments.aiAssist.responses[200].parse(payload);
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao gerar sugestao assistiva",
+        description: error instanceof Error ? error.message : "Falha ao consultar apoio assistivo",
+        variant: "destructive",
+      });
     },
   });
 }

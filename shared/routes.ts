@@ -196,6 +196,48 @@ export const scheduleConflictSchema = z.object({
   metadata: z.record(z.any()).optional(),
 });
 
+export const teachingAssignmentPreferenceSubjectSchema = z.object({
+  subjectId: z.number(),
+  subjectName: z.string(),
+  priority: z.number().int(),
+  finalScore: z.number().int().nullable().optional(),
+  compatibilityBand: compatibilityBandSchema.nullable().optional(),
+});
+
+export const teachingAssignmentPreferenceClassSectionSchema = z.object({
+  subjectId: z.number(),
+  subjectName: z.string(),
+  classSectionId: z.number(),
+  classSectionCode: z.string(),
+  classSectionName: z.string(),
+  courseId: z.number(),
+  courseName: z.string(),
+  priority: z.number().int(),
+});
+
+export const teachingAssignmentTeacherPreferenceSummarySchema = z.object({
+  teacherId: z.number(),
+  teacherName: z.string(),
+  status: z.enum(["draft", "submitted"]),
+  notes: z.string(),
+  submittedAt: z.string().or(z.date()).nullable().optional(),
+  careerTrack: z.string().nullable().optional(),
+  priorityOrder: z.number().int(),
+  weeklyLoadTargetHours: z.number().int(),
+  assignedSlotCount: z.number().int(),
+  remainingLoadHours: z.number().int(),
+  preferredSubjects: z.array(teachingAssignmentPreferenceSubjectSchema),
+  preferredClassSections: z.array(teachingAssignmentPreferenceClassSectionSchema),
+  topEligibleSubjects: z.array(
+    z.object({
+      subjectId: z.number(),
+      subjectName: z.string(),
+      finalScore: z.number().int(),
+      compatibilityBand: compatibilityBandSchema,
+    }),
+  ),
+});
+
 export const academicRecordStudentSchema = z.object({
   studentId: z.number(),
   studentName: z.string(),
@@ -304,8 +346,10 @@ export const teachingAssignmentAdminWorkspaceSchema = z.object({
   assignments: z.array(classSectionSubjectAssignmentSchema),
   draftEntries: z.array(classScheduleEntrySchema),
   publishedEntries: z.array(classScheduleEntrySchema),
+  teacherPreferenceSummaries: z.array(teachingAssignmentTeacherPreferenceSummarySchema),
   locationCategories: z.array(locationCategorySchema),
   locations: z.array(locationSchema),
+  latestConflicts: z.array(scheduleConflictSchema),
   latestPublication: z
     .object({
       id: z.number(),

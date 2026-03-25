@@ -1,0 +1,5 @@
+{
+  "name": "Sistema de Atribuição Acadêmica",
+  "description": "Plataforma institucional para gestão de atribuição de aulas, turmas e horários entre professores e coordenação.",
+  "requestFramePermissions": []
+}

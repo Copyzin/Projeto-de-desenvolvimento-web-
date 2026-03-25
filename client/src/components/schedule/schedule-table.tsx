@@ -21,11 +21,11 @@ type Entry = {
 };
 
 const DAY_LABELS: Record<Weekday, string> = {
-  monday: "Monday",
-  tuesday: "Tuesday",
-  wednesday: "Wednesday",
-  thursday: "Thursday",
-  friday: "Friday",
+  monday: "Segunda",
+  tuesday: "Terca",
+  wednesday: "Quarta",
+  thursday: "Quinta",
+  friday: "Sexta",
 };
 
 interface ScheduleTableProps {
@@ -53,11 +53,11 @@ export function ScheduleTable({ timeSlots, weekdays, entries }: ScheduleTablePro
   }
 
   return (
-    <table className="w-full border-collapse border border-slate-300 table-fixed min-w-[960px] bg-white">
+    <table className="w-full min-w-[820px] table-fixed border-collapse border border-slate-300 bg-white">
       <thead>
         <tr>
           <th className="w-32 border border-slate-300 bg-slate-50 text-left p-3 text-xs font-bold uppercase tracking-wider text-slate-600">
-            Time
+            Bloco
           </th>
           {weekdays.map((weekday) => (
             <th

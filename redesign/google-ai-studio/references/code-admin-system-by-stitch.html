@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+
+<html class="light" lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Portal Acadêmico - Gestão de Atribuições</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-secondary-fixed-variant": "#445d7b",
+              "primary-dim": "#48526a",
+              "secondary": "#48617e",
+              "on-primary-fixed": "#353f56",
+              "on-surface": "#2d342f",
+              "secondary-container": "#d1e4ff",
+              "background": "#f9faf5",
+              "surface-container-high": "#e4eae2",
+              "inverse-on-surface": "#9c9d9a",
+              "tertiary-container": "#c8dffe",
+              "on-secondary-fixed": "#27415d",
+              "on-tertiary": "#f7f9ff",
+              "error": "#9f403d",
+              "on-secondary-container": "#3a5470",
+              "tertiary-fixed": "#c8dffe",
+              "primary-fixed": "#d7e2ff",
+              "primary": "#545e76",
+              "outline": "#757d76",
+              "surface-container": "#ebefe9",
+              "tertiary": "#4b617b",
+              "outline-variant": "#acb4ac",
+              "surface-tint": "#545e76",
+              "surface-variant": "#dde5dc",
+              "on-tertiary-fixed": "#273d56",
+              "on-tertiary-container": "#3a5069",
+              "on-background": "#2d342f",
+              "inverse-surface": "#0c0f0d",
+              "surface-container-low": "#f2f4ef",
+              "surface-bright": "#f9faf5",
+              "error-container": "#fe8983",
+              "surface-container-highest": "#dde5dc",
+              "on-primary-container": "#475269",
+              "error-dim": "#4e0309",
+              "on-primary": "#f7f7ff",
+              "surface-dim": "#d3ddd3",
+              "surface": "#f9faf5",
+              "on-surface-variant": "#59615a",
+              "surface-container-lowest": "#ffffff",
+              "on-error-container": "#752121",
+              "tertiary-fixed-dim": "#bad1ef",
+              "secondary-fixed-dim": "#bdd7f9",
+              "primary-fixed-dim": "#c9d4f0",
+              "primary-container": "#d7e2ff",
+              "tertiary-dim": "#3f556e",
+              "secondary-dim": "#3c5572",
+              "on-primary-fixed-variant": "#515c73",
+              "inverse-primary": "#d7e2ff",
+              "on-tertiary-fixed-variant": "#445a73",
+              "on-secondary": "#f7f9ff",
+              "secondary-fixed": "#d1e4ff",
+              "on-error": "#fff7f6"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+        }
+        .tag-remove:hover { color: #9f403d; }
+    </style>
+</head>
+<body class="bg-background text-on-surface antialiased flex">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col w-64 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 z-50">
+<div class="p-6 flex items-center gap-3">
+<img alt="University Crest" class="w-8 h-8 rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAc3pLc7x8yA-Tn_V2Dwy2otIbVRKQb9tcd-GNHKyqbXJ8kKhN81P8-JzX0JwKV_fHnfCD5oKx-f8dy4KYVnEABlcYW-jICJNUK6MzgLPPgmNO0OsAAx91xuUdQUrcUQq1A5idBFeMx5lkfbBNDTjYhtiIyEdTlgxBRtB_GKmODcS-NXYx2lKSjTnEcONH3ubJZGWM_IUKMlPVgYtLq7q1-rsP5tiWMEjrg01rrB0NkJDRffhCdKWuftwP9ISmx_BH2j0zFOvWoKJw"/>
+<div>
+<h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 leading-none">Portal Acadêmico</h2>
+<p class="text-[10px] uppercase tracking-wider text-slate-500 font-medium mt-1">Gestão de Docentes</p>
+</div>
+</div>
+<nav class="flex-1 mt-4 px-3 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-md transition-colors duration-200 ease-in-out text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 scale-95 active:scale-100" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-manrope text-sm font-medium">Painel</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md transition-colors duration-200 ease-in-out bg-slate-200 dark:bg-slate-800 text-slate-900 dark:white border-l-4 border-slate-600 scale-95 active:scale-100" href="#">
+<span class="material-symbols-outlined">assignment_ind</span>
+<span class="font-manrope text-sm font-medium">Atribuições</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md transition-colors duration-200 ease-in-out text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 scale-95 active:scale-100" href="#">
+<span class="material-symbols-outlined">school</span>
+<span class="font-manrope text-sm font-medium">Docentes</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md transition-colors duration-200 ease-in-out text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 scale-95 active:scale-100" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+<span class="font-manrope text-sm font-medium">Disciplinas</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md transition-colors duration-200 ease-in-out text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 scale-95 active:scale-100" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-manrope text-sm font-medium">Configurações</span>
+</a>
+</nav>
+<div class="p-4 mt-auto">
+<button class="w-full flex items-center justify-center gap-2 bg-primary text-on-primary py-2.5 rounded-md text-sm font-semibold shadow-sm hover:shadow-md transition-all active:scale-95">
+<span class="material-symbols-outlined text-sm">add</span>
+                Nova Atribuição
+            </button>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="ml-64 flex flex-col flex-1 relative min-h-screen">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center h-16 px-8 w-full bg-white/80 dark:bg-slate-950/80 backdrop-blur-md z-40 border-b border-slate-100 dark:border-slate-800 sticky top-0">
+<div class="flex items-center gap-8">
+<h1 class="text-xl font-black text-slate-800 dark:text-slate-100">Sistema de Atribuição</h1>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-slate-900 dark:text-white font-semibold border-b-2 border-slate-600 pb-1 font-manrope text-base transition-all duration-300" href="#">Semestre 2024.2</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-700 font-manrope text-base transition-all duration-300" href="#">Campus Central</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<button class="p-2 text-slate-500 hover:text-slate-900 transition-all duration-300">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:text-slate-900 transition-all duration-300">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-slate-200 mx-2"></div>
+<img alt="User Profile" class="w-8 h-8 rounded-full border border-slate-200" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCkN6gQhNYXMjTT3xrsz_-y7XLrTqv80R43znoD9SJsxLhjBqoz9I9y-rtJx46yaxoOIjGwgsMaim_cnMbp2fhMoECmmg72e0z-3UvjPoCX1oUDkGiK3PWQ7iRJpFSFYaGjYO9WJcLHEBtbdZtFT60Zk_J1UBJbSzhabfPQe6_64hIP3oUbTNjRratzR9gs_RYWgF9YwuH985yl7CnkLSPivzogkcjgROwl1pZVLb-UfKf-TUSOnUnXxSbnGPiLFR5WTgq5_-mIbvc"/>
+</div>
+</header>
+<main class="flex-1 p-8 space-y-10 max-w-[1600px] mx-auto w-full">
+<!-- 1. Selection & Context Panel -->
+<section class="grid grid-cols-1 lg:grid-cols-4 gap-6 bg-surface-container-low p-6 rounded-xl relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10">
+<span class="material-symbols-outlined text-6xl">account_balance</span>
+</div>
+<div class="space-y-1.5">
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Curso / Programa</p>
+<select class="w-full bg-transparent border-0 border-b border-outline-variant focus:ring-0 focus:border-primary font-headline text-lg font-bold text-primary px-0 pb-1 cursor-pointer">
+<option selected="">Engenharia de Software</option>
+<option>Ciência da Computação</option>
+<option>Sistemas de Informação</option>
+</select>
+</div>
+<div class="space-y-1.5 lg:border-l lg:border-outline-variant/20 lg:pl-6">
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Turma / Semestre</p>
+<select class="w-full bg-transparent border-0 border-b border-outline-variant focus:ring-0 focus:border-primary font-headline text-lg font-bold text-on-surface px-0 pb-1 cursor-pointer">
+<option selected="">ES-2024.B (4º Período)</option>
+<option>ES-2024.A (2º Período)</option>
+<option>ES-2023.B (6º Período)</option>
+</select>
+</div>
+<div class="space-y-1 lg:border-l lg:border-outline-variant/20 lg:pl-6">
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Coordenador Resp.</p>
+<div class="flex items-center gap-2 py-1">
+<img class="w-6 h-6 rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBoB_kIFh-PgbQzVIYZJH1D22adFKMEZLESR7IMMK7lCp6NQJCm96Vk_AEdDapoMxtyXJ9aEkhkW1hP3mhHL11lIGvedrcn8BwNWLli4PcU8RZttP3JM2YpaRx2fuJDGxWV-RHsavYfGQ1zIRX1j5mGXQmF7hajGCzTKSIhDPBsPC9aj3X_qq9RZyiJAO1kHjdAerbMDNBfChVW-5Cl3YHtwniDyGUCUHYf4wTMj7ylazGjhEsvcnviCiyMb4kkfjXH280TUw8oGFI"/>
+<span class="font-body text-sm font-medium">Dr. Jonas D’Avila</span>
+</div>
+</div>
+<div class="flex items-center lg:justify-end">
+<span class="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+                        Rascunho em Edição
+                    </span>
+</div>
+</section>
+<!-- 2. Grade Closure Progress -->
+<section class="space-y-4">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-headline text-sm font-extrabold uppercase tracking-tighter text-on-surface">Fechamento da Grade em 4 Etapas</h2>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold text-primary uppercase tracking-wider">Próximo Passo:</span>
+<span class="text-xs font-medium text-on-surface bg-primary-container px-2 py-0.5 rounded">Consolidar rascunho com 7 pendências</span>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+<div class="relative bg-surface-container-highest/40 p-4 rounded-xl border border-outline-variant/20 transition-all hover:border-primary/40 cursor-pointer">
+<div class="flex items-center justify-between mb-3">
+<span class="w-6 h-6 flex items-center justify-center rounded-full bg-primary text-on-primary text-[10px] font-bold">1</span>
+<span class="material-symbols-outlined text-primary text-sm">check_circle</span>
+</div>
+<h4 class="text-xs font-bold text-on-surface mb-1">Receber Preferências</h4>
+<p class="text-[10px] text-on-surface-variant leading-relaxed">3/10 Envios recebidos dos docentes.</p>
+</div>
+<div class="relative bg-white dark:bg-slate-900 p-4 rounded-xl border-2 border-primary shadow-lg shadow-primary/5 transition-all cursor-pointer">
+<div class="flex items-center justify-between mb-3">
+<span class="w-6 h-6 flex items-center justify-center rounded-full bg-primary text-on-primary text-[10px] font-bold">2</span>
+<span class="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[8px] font-bold uppercase">Em Foco</span>
+</div>
+<h4 class="text-xs font-bold text-primary mb-1 uppercase tracking-tight">Consolidar Rascunho</h4>
+<p class="text-[10px] text-on-surface-variant leading-relaxed">Revisar lacunas e consolidar por curso.</p>
+</div>
+<div class="relative bg-surface-container-highest/20 p-4 rounded-xl border border-outline-variant/10 opacity-60 transition-all cursor-not-allowed">
+<div class="flex items-center justify-between mb-3">
+<span class="w-6 h-6 flex items-center justify-center rounded-full bg-outline-variant text-white text-[10px] font-bold">3</span>
+</div>
+<h4 class="text-xs font-bold text-on-surface mb-1">Resolver Conflitos</h4>
+<p class="text-[10px] text-on-surface-variant leading-relaxed">Corrigir choques de horários e locais.</p>
+</div>
+<div class="relative bg-surface-container-highest/20 p-4 rounded-xl border border-outline-variant/10 opacity-60 transition-all cursor-not-allowed">
+<div class="flex items-center justify-between mb-3">
+<span class="w-6 h-6 flex items-center justify-center rounded-full bg-outline-variant text-white text-[10px] font-bold">4</span>
+</div>
+<h4 class="text-xs font-bold text-on-surface mb-1">Publicar Grade</h4>
+<p class="text-[10px] text-on-surface-variant leading-relaxed">Validar e liberar horários oficiais.</p>
+</div>
+</div>
+</section>
+<!-- 3. Expanded Central Weekly Schedule Grid -->
+<section class="bg-surface-container-lowest rounded-2xl p-8 border border-outline-variant/10 shadow-[0_20px_50px_rgba(0,0,0,0.02)]">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h3 class="font-headline text-2xl font-extrabold text-on-surface tracking-tight">QUADRO SEMANAL</h3>
+<p class="text-xs text-on-surface-variant mt-1">Visualize e organize os blocos de aula para todos os dias</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex bg-surface-container rounded-lg p-1">
+<button class="px-4 py-1.5 rounded-md bg-white text-xs font-bold shadow-sm">Rascunho</button>
+<button class="px-4 py-1.5 rounded-md text-xs font-bold text-on-surface-variant">Oficial</button>
+</div>
+<button class="p-2 hover:bg-surface-container rounded-lg transition-all border border-outline-variant/20">
+<span class="material-symbols-outlined text-on-surface-variant">print</span>
+</button>
+<button class="p-2 hover:bg-surface-container rounded-lg transition-all border border-outline-variant/20">
+<span class="material-symbols-outlined text-on-surface-variant">download</span>
+</button>
+</div>
+</div>
+<div class="w-full border rounded-xl border-outline-variant/20 overflow-hidden">
+<table class="w-full border-collapse">
+<thead>
+<tr class="bg-surface-container-high/50">
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10 w-32">Bloco</th>
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10">Segunda</th>
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10">Terça</th>
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10">Quarta</th>
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10">Quinta</th>
+<th class="py-4 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-left border-b border-outline-variant/10">Sexta</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<!-- Slot 1 -->
+<tr>
+<td class="py-6 px-4 text-xs font-bold text-on-surface-variant bg-surface-container-low/20">18:30 - 19:20</td>
+<td class="p-2 align-top">
+<div class="bg-secondary-container/30 p-3 rounded-lg border-l-4 border-primary h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer group">
+<p class="text-[11px] font-black text-primary leading-tight uppercase">Eng. Requisitos</p>
+<p class="text-[10px] text-on-secondary-container mt-2 font-medium">Prof. Aline Rocha</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Sala 101</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="bg-error-container/10 p-3 rounded-lg border-l-4 border-error border-dashed h-full min-h-[100px] transition-all hover:bg-error-container/20 cursor-pointer">
+<p class="text-[11px] font-black text-error leading-tight uppercase">Algoritmos</p>
+<p class="text-[10px] text-on-error-container mt-2 font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">warning</span> Conflito Detectado
+                                        </p>
+<p class="text-[9px] text-on-error-container/60 mt-1 italic">Revisar horários</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="bg-secondary-container/30 p-3 rounded-lg border-l-4 border-primary h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer">
+<p class="text-[11px] font-black text-primary leading-tight uppercase">Sist. Distribuídos</p>
+<p class="text-[10px] text-on-secondary-container mt-2 font-medium">Prof. K. Mendes</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Lab 04</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="bg-surface-container-high/40 p-3 rounded-lg border-l-4 border-on-surface-variant h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer">
+<p class="text-[11px] font-black text-on-surface leading-tight uppercase">Gestão de Projetos</p>
+<p class="text-[10px] text-on-surface-variant mt-2 font-medium">Prof. Mariana Souza</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Sala 202</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="h-full min-h-[100px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all">
+<span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span>
+<span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span>
+</div>
+</td>
+</tr>
+<!-- Slot 2 -->
+<tr>
+<td class="py-6 px-4 text-xs font-bold text-on-surface-variant bg-surface-container-low/20">19:20 - 20:10</td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+</tr>
+<tr class="bg-surface-container-low/40">
+<td class="py-6 px-4 text-[10px] font-black text-on-surface-variant/60 uppercase tracking-widest text-center" colspan="6">20:10 - 20:30 (INTERVALO)</td>
+</tr>
+<!-- Slot 3 -->
+<tr>
+<td class="py-6 px-4 text-xs font-bold text-on-surface-variant bg-surface-container-low/20">20:30 - 21:20</td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+<td class="p-2 align-top"><div class="h-full min-h-[80px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all"><span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span><span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span></div></td>
+</tr>
+<!-- Slot 4 -->
+<tr>
+<td class="py-6 px-4 text-xs font-bold text-on-surface-variant bg-surface-container-low/20">21:20 - 22:10</td>
+<td class="p-2 align-top">
+<div class="bg-tertiary-container/30 p-3 rounded-lg border-l-4 border-tertiary h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer">
+<p class="text-[11px] font-black text-tertiary leading-tight uppercase">Ética Profissional</p>
+<p class="text-[10px] text-on-tertiary-container mt-2 font-medium">Prof. Jonas D'Avila</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Sala 101</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="h-full min-h-[100px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all">
+<span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span>
+<span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="bg-secondary-container/30 p-3 rounded-lg border-l-4 border-primary h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer">
+<p class="text-[11px] font-black text-primary leading-tight uppercase">Sistemas Operacionais</p>
+<p class="text-[10px] text-on-secondary-container mt-2 font-medium">Prof. Ricardo Almeida</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Lab 02</p>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="h-full min-h-[100px] border-2 border-dashed border-outline-variant/10 rounded-lg bg-surface-container-low/30 flex flex-col items-center justify-center group cursor-pointer hover:bg-primary/5 hover:border-primary/20 transition-all">
+<span class="material-symbols-outlined text-outline-variant/40 group-hover:text-primary transition-all">add_circle</span>
+<span class="text-[8px] font-bold text-outline-variant uppercase mt-1">Livre</span>
+</div>
+</td>
+<td class="p-2 align-top">
+<div class="bg-surface-container-high/40 p-3 rounded-lg border-l-4 border-on-surface-variant h-full min-h-[100px] transition-all hover:shadow-md cursor-pointer">
+<p class="text-[11px] font-black text-on-surface leading-tight uppercase">Matemática Discreta</p>
+<p class="text-[10px] text-on-surface-variant mt-2 font-medium">Prof. Clara Campos</p>
+<p class="text-[9px] text-on-surface-variant mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-[10px]">location_on</span> Sala 101</p>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 4. Operational Controls & Relocated Alerts -->
+<div class="space-y-8">
+<!-- RELOCATED: Alertas de Lacunas e Conflitos (now above operational cards) -->
+<section class="space-y-4">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-headline text-sm font-extrabold uppercase tracking-tight text-on-surface">Alertas de Lacunas e Conflitos</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="flex items-start gap-3 p-4 bg-error-container/10 border-l-4 border-error rounded-r-lg">
+<span class="material-symbols-outlined text-error text-lg" style="font-variation-settings: 'FILL' 1;">warning</span>
+<div class="flex-1">
+<h4 class="text-xs font-bold text-on-error-container uppercase">Conflito de Horário</h4>
+<p class="text-[10px] text-on-error-container/80 mt-0.5">Prof. Ricardo Silva já possui aula Terça-feira (18:30).</p>
+</div>
+<button class="text-[10px] font-bold text-error underline">Resolver</button>
+</div>
+<div class="flex items-start gap-3 p-4 bg-tertiary-container/20 border-l-4 border-tertiary rounded-r-lg">
+<span class="material-symbols-outlined text-tertiary text-lg">priority_high</span>
+<div class="flex-1">
+<h4 class="text-xs font-bold text-on-tertiary-container uppercase">Lacuna de Atribuição</h4>
+<p class="text-[10px] text-on-tertiary-container/80 mt-0.5">Disciplina 'Estatística' sem docente vinculado.</p>
+</div>
+<button class="text-[10px] font-bold text-tertiary underline">Atribuir</button>
+</div>
+</div>
+</section>
+<div class="grid grid-cols-12 gap-8">
+<!-- Left: Slot Management -->
+<div class="col-span-12 lg:col-span-4 h-full">
+<section class="bg-surface-container-highest/30 p-6 rounded-xl border border-outline-variant/10 h-full">
+<h3 class="font-headline text-sm font-bold mb-6 flex items-center gap-2 uppercase tracking-tight">
+<span class="material-symbols-outlined text-primary">edit_calendar</span>
+                                Gerenciar Slot de Aula
+                            </h3>
+<div class="space-y-4">
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Dia da Semana</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Segunda-feira</option>
+<option>Terça-feira</option>
+<option>Quarta-feira</option>
+<option>Quinta-feira</option>
+<option>Sexta-feira</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Início</label>
+<input class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3" type="time" value="18:30"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Disciplina</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Selecione a disciplina...</option>
+<option>Arquitetura de Computadores</option>
+<option>Algoritmos Avançados</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Local / Sala</label>
+<div class="w-full bg-surface-container-lowest border border-transparent rounded-md p-2 flex flex-wrap gap-2 min-h-[40px] focus-within:ring-1 focus-within:ring-primary">
+<span class="bg-secondary-container text-on-secondary-container text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1">
+                                            Sala 101 <button class="tag-remove"><span class="material-symbols-outlined text-[12px]">close</span></button>
+</span>
+<input class="bg-transparent border-0 flex-1 outline-none text-sm p-0 min-w-[100px]" placeholder="Adicionar local..." type="text"/>
+</div>
+</div>
+<button class="w-full bg-primary text-on-primary py-3 rounded-md font-bold text-sm mt-2 hover:bg-on-primary-fixed-variant transition-all shadow-md">
+                                    Adicionar ao Quadro
+                                </button>
+</div>
+</section>
+</div>
+<!-- Right: Profile and Location Ops -->
+<div class="col-span-12 lg:col-span-8">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
+<!-- Perfil Docente e Fila -->
+<section class="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 shadow-sm flex flex-col h-full">
+<div class="flex items-center gap-2 mb-6 border-b border-outline-variant/20 pb-4">
+<span class="material-symbols-outlined text-primary">groups</span>
+<h3 class="font-headline text-sm font-extrabold uppercase tracking-tight">Perfil Docente e Fila</h3>
+</div>
+<div class="space-y-4 flex-1">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Docente</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Selecione um professor...</option>
+<option>Dr. Ricardo Almeida</option>
+<option>Dra. Mariana Souza</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Estrutura de Carreira</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Magistério Superior A / Nível 1</option>
+<option>Magistério Superior B / Nível 2</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Prioridade (0-100)</label>
+<input class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3" type="number" value="100"/>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Carga Alvo</label>
+<input class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3" type="number" value="20"/>
+</div>
+</div>
+</div>
+<button class="w-full bg-primary/10 text-primary py-2.5 rounded-md font-bold text-sm mt-6 hover:bg-primary/20 transition-all">
+                                    Salvar Perfil
+                                </button>
+</section>
+<!-- Categorias de Local -->
+<section class="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 shadow-sm flex flex-col h-full">
+<div class="flex items-center gap-2 mb-6 border-b border-outline-variant/20 pb-4">
+<span class="material-symbols-outlined text-primary">location_on</span>
+<h3 class="font-headline text-sm font-extrabold uppercase tracking-tight">Categorias de Local</h3>
+</div>
+<div class="space-y-4 flex-1">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Categoria de Sala</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Sala 100 max</option>
+<option>Laboratório Computação</option>
+<option>Auditório</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Tipo</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Teórica</option>
+<option>Laboratório</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Capacidade</label>
+<input class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3" type="number" value="40"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Equipamento Base</label>
+<textarea class="w-full bg-surface-container-lowest border-0 rounded-md text-[11px] focus:ring-1 focus:ring-primary p-2 min-h-[60px]" placeholder="Projetor, bancada, etc..."></textarea>
+</div>
+</div>
+<button class="w-full bg-primary/10 text-primary py-2.5 rounded-md font-bold text-sm mt-6 hover:bg-primary/20 transition-all">
+                                    Salvar Categoria
+                                </button>
+</section>
+</div>
+</div>
+</div>
+</div>
+<!-- Full Width Professor Assignment -->
+<section class="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 shadow-sm">
+<div class="flex items-center gap-2 mb-6 border-b border-outline-variant/20 pb-4">
+<span class="material-symbols-outlined text-primary">assignment_ind</span>
+<h3 class="font-headline text-sm font-extrabold uppercase tracking-tight">Atribuição: Professor por Turma/Matéria</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Matéria</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Engenharia de Requisitos</option>
+<option>Sistemas Distribuídos</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Professor Atribuído</label>
+<select class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3">
+<option>Prof. Aline Rocha</option>
+<option>Prof. K. Mendes</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] font-bold uppercase text-on-surface-variant">Blocos Semanais</label>
+<input class="w-full bg-surface-container-lowest border-0 rounded-md text-sm focus:ring-1 focus:ring-primary h-10 px-3" type="number" value="2"/>
+</div>
+<div class="flex items-end">
+<button class="w-full bg-primary/10 text-primary py-2.5 rounded-md font-bold text-sm hover:bg-primary/20 transition-all">
+                            Confirmar Atribuição
+                        </button>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Action Footer -->
+<footer class="h-20 glass-panel border-t border-outline-variant/10 px-8 flex items-center justify-between sticky bottom-0 z-40">
+<div class="flex items-center gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter">Progresso do Semestre 2024.2</span>
+<div class="flex items-center gap-3 mt-1">
+<div class="w-64 h-2 bg-surface-variant rounded-full overflow-hidden">
+<div class="w-3/4 h-full bg-primary"></div>
+</div>
+<span class="text-xs font-bold text-primary">75% CONCLUÍDO</span>
+</div>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant/20 hidden md:block"></div>
+<p class="text-xs text-on-surface-variant italic hidden md:block">Autosalvamento ativo: 14:05:22</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-6 py-2.5 rounded-md border border-outline-variant text-sm font-bold hover:bg-surface-container transition-all">
+                    Visualizar Preview
+                </button>
+<button class="px-8 py-2.5 rounded-md bg-primary text-on-primary text-sm font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all">
+                    Publicar Grade Oficial
+                </button>
+</div>
+</footer>
+</div>
+</body></html>

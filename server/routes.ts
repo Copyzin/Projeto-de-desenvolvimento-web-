@@ -745,12 +745,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post(api.teachingAssignments.aiAssist.path, requireRoles("admin"), async (req, res) => {
+  app.post(api.teachingAssignments.aiAssist.path, requireRoles("admin", "teacher"), async (req, res) => {
     try {
       const input = api.teachingAssignments.aiAssist.input.parse(req.body);
+      const authUser = getAuthUser(req);
+
+      if (authUser.role === "teacher" && input.teacherId !== authUser.id) {
+        return res.status(403).json({ message: "Professor so pode consultar sugestoes para o proprio perfil" });
+      }
+
       const suggestions = await teachingAssignmentService.getOptionalAiEligibilitySuggestions({
         teacherId: input.teacherId,
-        requestedByUserId: getAuthUser(req).id,
+        requestedByUserId: authUser.id,
       });
       return res.json(suggestions);
     } catch (error) {

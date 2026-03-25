@@ -6,7 +6,7 @@ interface ScheduleHeaderProps {
 
 export function ScheduleHeader({ title, subtitle, semesterLabel }: ScheduleHeaderProps) {
   return (
-    <div className="mb-8 border-b border-slate-900/80 pb-4 flex justify-between items-end gap-4">
+    <div className="mb-6 flex flex-col gap-3 border-b border-slate-900/80 pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <h1 className="text-xl font-bold uppercase tracking-tight text-slate-950">{title}</h1>
         <p className="text-sm text-slate-600 mt-1">{subtitle}</p>

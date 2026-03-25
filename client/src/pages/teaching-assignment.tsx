@@ -47,17 +47,111 @@ function formatCompatibilityBand(value: string) {
 function formatScheduleTitle(section?: { code: string; name: string; courseName: string } | null) {
   if (!section) {
     return {
-      title: "Academic Weekly Schedule",
+      title: "Quadro semanal",
       subtitle: "Calendario semanal academico",
       sheetId: "SCHEDULE-DRAFT",
     };
   }
 
   return {
-    title: "Academic Weekly Schedule",
+    title: "Quadro semanal",
     subtitle: `${section.courseName} | Turma: ${section.code} - ${section.name}`,
     sheetId: `${section.code}-${section.name}`.replace(/\s+/g, "-").toUpperCase(),
   };
+}
+
+function formatPreferenceStatus(value: "draft" | "submitted") {
+  return value === "submitted" ? "Enviada" : "Rascunho";
+}
+
+function formatConflictType(value: string) {
+  if (value === "teacher") return "Conflito de professor";
+  if (value === "class_section") return "Conflito de turma";
+  if (value === "location") return "Conflito de local";
+  if (value === "capacity") return "Capacidade insuficiente";
+  if (value === "location_kind") return "Tipo de local";
+  if (value === "availability") return "Indisponibilidade";
+  if (value === "integrity") return "Lacuna de cobertura";
+  if (value === "coordinator") return "Coordenador pendente";
+  return value;
+}
+
+type WorkflowStepStatus = "done" | "current" | "pending";
+
+type WorkflowGuideStep = {
+  label: string;
+  description: string;
+  status: WorkflowStepStatus;
+};
+
+type WorkflowGuideMetric = {
+  label: string;
+  value: string;
+};
+
+function workflowBadgeVariant(status: WorkflowStepStatus): "secondary" | "outline" | "destructive" {
+  if (status === "done") return "secondary";
+  if (status === "current") return "outline";
+  return "destructive";
+}
+
+function workflowStatusLabel(status: WorkflowStepStatus) {
+  if (status === "done") return "Concluido";
+  if (status === "current") return "Em foco";
+  return "Pendente";
+}
+
+function WorkflowGuideCard(props: {
+  title: string;
+  description: string;
+  nextAction: string;
+  steps: WorkflowGuideStep[];
+  metrics: WorkflowGuideMetric[];
+  footer: string;
+}) {
+  return (
+    <Card className="border-primary/15 bg-slate-50/80">
+      <CardHeader className="space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-2">
+            <CardTitle className="text-xl">{props.title}</CardTitle>
+            <CardDescription className="max-w-3xl">{props.description}</CardDescription>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3 text-sm shadow-sm">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Proximo passo</p>
+            <p className="mt-1 font-medium text-foreground">{props.nextAction}</p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 xl:grid-cols-4">
+          {props.metrics.map((metric) => (
+            <div key={metric.label} className="rounded-xl border bg-white p-4 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{metric.label}</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+          {props.steps.map((step, index) => (
+            <div key={step.label} className="rounded-xl border bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
+                  {index + 1}
+                </div>
+                <Badge variant={workflowBadgeVariant(step.status)}>{workflowStatusLabel(step.status)}</Badge>
+              </div>
+              <p className="mt-3 font-medium text-foreground">{step.label}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border border-dashed bg-white/90 p-4 text-sm text-muted-foreground">
+          {props.footer}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function TeachingAssignmentPage() {
@@ -78,6 +172,8 @@ export default function TeachingAssignmentPage() {
   const aiAssist = useTeachingAssignmentAiAssist();
 
   const [selectedSectionId, setSelectedSectionId] = useState<number | undefined>();
+  const [selectedCourseId, setSelectedCourseId] = useState<number | undefined>();
+  const [selectedTeacherId, setSelectedTeacherId] = useState<number | undefined>();
   const [validationState, setValidationState] = useState<Awaited<
     ReturnType<typeof validateSchedule.mutateAsync>
   > | null>(null);
@@ -121,10 +217,17 @@ export default function TeachingAssignmentPage() {
 
   useEffect(() => {
     if (!adminWorkspace.data?.classSections.length) return;
-    if (!selectedSectionId) {
-      setSelectedSectionId(adminWorkspace.data.classSections[0].id);
+
+    const scopedSections = selectedCourseId
+      ? adminWorkspace.data.classSections.filter((section) => section.courseId === selectedCourseId)
+      : adminWorkspace.data.classSections;
+
+    if (!scopedSections.length) return;
+
+    if (!selectedSectionId || !scopedSections.some((section) => section.id === selectedSectionId)) {
+      setSelectedSectionId(scopedSections[0].id);
     }
-  }, [adminWorkspace.data, selectedSectionId]);
+  }, [adminWorkspace.data, selectedCourseId, selectedSectionId]);
 
   useEffect(() => {
     if (!teacherWorkspace.data?.preferences) return;
@@ -150,12 +253,113 @@ export default function TeachingAssignmentPage() {
     [adminWorkspace.data, selectedSectionId],
   );
 
+  const adminCourseOptions = useMemo(() => {
+    if (!adminWorkspace.data) return [];
+
+    const byCourse = new Map<number, { id: number; name: string }>();
+    for (const section of adminWorkspace.data.classSections) {
+      if (!byCourse.has(section.courseId)) {
+        byCourse.set(section.courseId, { id: section.courseId, name: section.courseName });
+      }
+    }
+    return Array.from(byCourse.values()).sort((left, right) => left.name.localeCompare(right.name));
+  }, [adminWorkspace.data]);
+
+  const filteredAdminSections = useMemo(() => {
+    if (!adminWorkspace.data) return [];
+    return selectedCourseId
+      ? adminWorkspace.data.classSections.filter((section) => section.courseId === selectedCourseId)
+      : adminWorkspace.data.classSections;
+  }, [adminWorkspace.data, selectedCourseId]);
+
   const adminSectionEntries = useMemo(() => {
     if (!adminWorkspace.data || !selectedSectionId) return [];
     return adminWorkspace.data.draftEntries.filter((entry) => entry.classSectionId === selectedSectionId);
   }, [adminWorkspace.data, selectedSectionId]);
 
+  const adminPublishedSectionEntries = useMemo(() => {
+    if (!adminWorkspace.data || !selectedSectionId) return [];
+    return adminWorkspace.data.publishedEntries.filter((entry) => entry.classSectionId === selectedSectionId);
+  }, [adminWorkspace.data, selectedSectionId]);
+
   const adminScheduleMeta = formatScheduleTitle(adminSelectedSection);
+
+  const filteredAssignments = useMemo(() => {
+    if (!adminWorkspace.data) return [];
+
+    return adminWorkspace.data.assignments.filter((assignment) => {
+      const matchesTeacher = selectedTeacherId ? assignment.teacherId === selectedTeacherId : true;
+      const matchesSection = selectedSectionId ? assignment.classSectionId === selectedSectionId : true;
+      const matchesCourse = selectedCourseId
+        ? adminWorkspace.data.classSections.some(
+            (section) => section.id === assignment.classSectionId && section.courseId === selectedCourseId,
+          )
+        : true;
+      return matchesTeacher && matchesSection && matchesCourse;
+    });
+  }, [adminWorkspace.data, selectedCourseId, selectedSectionId, selectedTeacherId]);
+
+  const filteredPreferenceSummaries = useMemo(() => {
+    if (!adminWorkspace.data) return [];
+
+    return adminWorkspace.data.teacherPreferenceSummaries.filter((summary) => {
+      const matchesTeacher = selectedTeacherId ? summary.teacherId === selectedTeacherId : true;
+      const matchesCourse = selectedCourseId
+        ? summary.preferredClassSections.some((item) => item.courseId === selectedCourseId) ||
+          adminWorkspace.data.assignments.some(
+            (assignment) =>
+              assignment.teacherId === summary.teacherId &&
+              adminWorkspace.data.classSections.some(
+                (section) => section.id === assignment.classSectionId && section.courseId === selectedCourseId,
+              ),
+          )
+        : true;
+      return matchesTeacher && matchesCourse;
+    });
+  }, [adminWorkspace.data, selectedCourseId, selectedTeacherId]);
+
+  const assignmentCoverageRows = useMemo(() => {
+    if (!adminWorkspace.data) return [];
+
+    return filteredAssignments.map((assignment) => {
+      const draftSlots = adminWorkspace.data.draftEntries
+        .filter((entry) => entry.assignmentId === assignment.id)
+        .reduce((sum, entry) => sum + entry.spanSlots, 0);
+      const publishedSlots = adminWorkspace.data.publishedEntries
+        .filter((entry) => entry.assignmentId === assignment.id)
+        .reduce((sum, entry) => sum + entry.spanSlots, 0);
+      const classSection = adminWorkspace.data.classSections.find((section) => section.id === assignment.classSectionId);
+      return {
+        ...assignment,
+        classSection,
+        draftSlots,
+        publishedSlots,
+        draftGap: Math.max(0, assignment.weeklySlotTarget - draftSlots),
+        publishedGap: Math.max(0, assignment.weeklySlotTarget - publishedSlots),
+      };
+    });
+  }, [adminWorkspace.data, filteredAssignments]);
+
+  const gapRows = useMemo(
+    () =>
+      assignmentCoverageRows.filter(
+        (row) => row.draftGap > 0 || row.publishedGap > 0 || !row.classSection?.coordinatorTeacherId,
+      ),
+    [assignmentCoverageRows],
+  );
+
+  const activeConflictState = useMemo(() => {
+    if (validationState) return validationState;
+    if (!adminWorkspace.data?.latestRun) return null;
+
+    return {
+      runId: adminWorkspace.data.latestRun.id,
+      status: adminWorkspace.data.latestRun.status,
+      hardConflictCount: Number(adminWorkspace.data.latestRun.summary?.hardConflictCount ?? 0),
+      softConflictCount: Number(adminWorkspace.data.latestRun.summary?.softConflictCount ?? 0),
+      conflicts: adminWorkspace.data.latestConflicts,
+    };
+  }, [adminWorkspace.data, validationState]);
 
   const teacherSectionOptions = useMemo(() => {
     if (!teacherWorkspace.data) return [];
@@ -258,7 +462,7 @@ export default function TeachingAssignmentPage() {
 
   const teacherPublishedSchedule = teacherWorkspace.data
     ? {
-        title: "Academic Weekly Schedule",
+        title: "Quadro semanal",
         subtitle: `${teacherWorkspace.data.teacher.name} | Grade publicada`,
         semesterLabel: teacherWorkspace.data.activeTerm.name,
         timeSlots: teacherWorkspace.data.timeSlots,
@@ -269,6 +473,327 @@ export default function TeachingAssignmentPage() {
         sheetId: `TEACHER-${teacherWorkspace.data.teacher.id}-${teacherWorkspace.data.activeTerm.code}`,
       }
     : null;
+
+  const adminSubmittedCount = adminWorkspace.data
+    ? adminWorkspace.data.teacherPreferenceSummaries.filter((summary) => summary.status === "submitted").length
+    : 0;
+  const adminPendingCount = adminWorkspace.data
+    ? adminWorkspace.data.teacherPreferenceSummaries.filter((summary) => summary.status !== "submitted").length
+    : 0;
+  const adminHardConflictCount = activeConflictState?.hardConflictCount ?? 0;
+  const adminSoftConflictCount = activeConflictState?.softConflictCount ?? 0;
+  const adminReadyToPublish =
+    isAdmin &&
+    Boolean(adminWorkspace.data) &&
+    adminPendingCount === 0 &&
+    adminHardConflictCount === 0 &&
+    gapRows.length === 0 &&
+    filteredAssignments.length > 0;
+  const adminNextAction =
+    adminPendingCount > 0
+      ? `Cobrar ou revisar ${adminPendingCount} envio(s) docente(s) antes de fechar a grade.`
+      : adminHardConflictCount > 0
+        ? `Resolver ${adminHardConflictCount} conflito(s) hard antes da publicacao.`
+        : gapRows.length > 0
+          ? `Fechar ${gapRows.length} lacuna(s) de cobertura e coordenacao.`
+          : "Validar a grade final e publicar os horarios oficiais.";
+
+  const teacherEligibleCount = teacherWorkspace.data?.eligibleSubjects.length ?? 0;
+  const teacherSelectedSubjectCount = preferredSubjectIds.length;
+  const teacherSelectedSectionCount = preferredSectionPairs.length;
+  const teacherAvailabilityDefinedCount = Object.keys(availabilityMap).length;
+  const teacherSubmissionStatus = teacherWorkspace.data?.preferences.status ?? "draft";
+  const teacherCanSubmit =
+    teacherEligibleCount > 0 && teacherSelectedSubjectCount > 0 && teacherSelectedSectionCount > 0;
+  const teacherNextAction =
+    teacherEligibleCount === 0
+      ? "Revise formacao, competencias e historico para liberar elegibilidade real."
+      : teacherSelectedSubjectCount === 0
+        ? "Escolha primeiro as materias com maior afinidade."
+        : teacherSelectedSectionCount === 0
+          ? "Associe agora as turmas desejadas para cada materia escolhida."
+          : teacherAvailabilityDefinedCount === 0
+            ? "Registre a disponibilidade semanal antes de salvar."
+            : teacherSubmissionStatus === "submitted"
+            ? "Aguarde a consolidacao do admin; seu envio ja entrou no fluxo de atribuicao."
+              : "Salve suas preferencias para enviar sua intencao ao admin.";
+
+  const adminScheduleManagementSection = adminWorkspace.data ? (
+    <div className="space-y-6">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Tabelas semanais da turma</CardTitle>
+            <CardDescription>
+              Escolha a turma que deseja acompanhar. Os resumos ficam aqui em cima e a leitura detalhada da grade fica logo abaixo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="preview-class">Turma exibida</Label>
+              <select
+                id="preview-class"
+                value={selectedSectionId ?? ""}
+                onChange={(event) => setSelectedSectionId(Number(event.target.value))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {filteredAdminSections.map((section) => (
+                  <option key={section.id} value={section.id}>
+                    {section.code} - {section.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Publicado: {adminPublishedSectionEntries.length}</Badge>
+              <Badge variant="secondary">Rascunho: {adminSectionEntries.length}</Badge>
+              {adminWorkspace.data.latestPublication ? (
+                <Badge variant="outline">
+                  Publicado em {new Date(adminWorkspace.data.latestPublication.createdAt).toLocaleDateString("pt-BR")}
+                </Badge>
+              ) : (
+                <Badge variant="outline">Sem publicacao oficial</Badge>
+              )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Turma selecionada</p>
+                <p className="mt-2 font-semibold text-foreground">
+                  {adminSelectedSection ? `${adminSelectedSection.code} - ${adminSelectedSection.name}` : "Nenhuma turma"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{adminSelectedSection?.courseName ?? "Sem curso selecionado"}</p>
+              </div>
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Grade oficial</p>
+                <p className="mt-2 font-semibold text-foreground">
+                  {adminPublishedSectionEntries.length > 0 ? "Publicada para consulta" : "Ainda nao publicada"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {adminPublishedSectionEntries.length > 0
+                    ? "Use a tabela abaixo para comparar o publicado com o novo rascunho."
+                    : "Monte o rascunho e valide antes de publicar."}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="xl:self-start">
+          <CardHeader>
+            <CardTitle>Slots de aula</CardTitle>
+            <CardDescription>Crie o encontro oficial entre turma, materia, professor e local.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
+              Primeiro selecione a atribuicao. Depois defina dia, bloco, duracao e local. O slot entra no
+              rascunho da turma e so vira operacional depois da validacao e publicacao.
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="slot-assignment">Atribuicao</Label>
+              <select
+                id="slot-assignment"
+                value={slotForm.assignmentId}
+                onChange={(event) => setSlotForm((current) => ({ ...current, assignmentId: event.target.value }))}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Selecione</option>
+                {filteredAssignments.map((assignment) => (
+                  <option key={assignment.id} value={assignment.id}>
+                    {assignment.classSectionCode} | {assignment.subjectName} | {assignment.teacherName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="slot-weekday">Dia</Label>
+                <select
+                  id="slot-weekday"
+                  value={slotForm.weekday}
+                  onChange={(event) =>
+                    setSlotForm((current) => ({ ...current, weekday: event.target.value as Weekday }))
+                  }
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {adminWorkspace.data.weekdays.map((weekday) => (
+                    <option key={weekday} value={weekday}>
+                      {WEEKDAY_LABELS[weekday]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="slot-time">Bloco inicial</Label>
+                <select
+                  id="slot-time"
+                  value={slotForm.timeSlotId}
+                  onChange={(event) => setSlotForm((current) => ({ ...current, timeSlotId: event.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Selecione</option>
+                  {adminWorkspace.data.timeSlots
+                    .filter((slot) => !slot.isBreak)
+                    .map((slot) => (
+                      <option key={slot.id} value={slot.id}>
+                        {slot.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="slot-span">Duracao em blocos</Label>
+                <Input
+                  id="slot-span"
+                  type="number"
+                  min={1}
+                  value={slotForm.spanSlots}
+                  onChange={(event) => setSlotForm((current) => ({ ...current, spanSlots: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="slot-location">Local</Label>
+                <select
+                  id="slot-location"
+                  value={slotForm.locationId}
+                  onChange={(event) => setSlotForm((current) => ({ ...current, locationId: event.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Selecione</option>
+                  {adminWorkspace.data.locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name} ({location.kind})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <Button
+              className="w-full"
+              onClick={() =>
+                createScheduleEntry.mutate({
+                  assignmentId: Number(slotForm.assignmentId),
+                  weekday: slotForm.weekday,
+                  timeSlotId: Number(slotForm.timeSlotId),
+                  spanSlots: Number(slotForm.spanSlots),
+                  locationId: Number(slotForm.locationId),
+                })
+              }
+              disabled={
+                !slotForm.assignmentId || !slotForm.timeSlotId || !slotForm.locationId || createScheduleEntry.isPending
+              }
+            >
+              {createScheduleEntry.isPending ? "Salvando..." : "Adicionar slot"}
+            </Button>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">Rascunho da turma selecionada</p>
+                <Badge variant="outline">{adminSectionEntries.length} slot(s)</Badge>
+              </div>
+              {adminSectionEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum slot em rascunho para a turma selecionada.</p>
+              ) : (
+                <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                  {adminSectionEntries.map((entry) => (
+                    <div key={entry.id} className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-medium">
+                          {entry.subjectName} | {entry.teacherName}
+                        </p>
+                        <p className="mt-1 break-words text-sm text-muted-foreground">
+                          {WEEKDAY_LABELS[entry.weekday]} | {entry.timeSlotLabel} | {entry.locationName}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        className="shrink-0"
+                        onClick={() => deleteScheduleEntry.mutate(entry.id)}
+                        disabled={deleteScheduleEntry.isPending}
+                      >
+                        Remover
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tabela semanal da turma</CardTitle>
+          <CardDescription>
+            Area principal de leitura da grade. O publicado e o rascunho ficam abaixo, separados dos controles.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">Grade oficial publicada</p>
+                <p className="text-sm text-muted-foreground">
+                  Fonte operacional real de materiais, notas e faltas.
+                </p>
+              </div>
+              <Badge variant="outline">{adminPublishedSectionEntries.length} slots</Badge>
+            </div>
+            {adminPublishedSectionEntries.length > 0 ? (
+              <AcademicWeeklySchedule
+                title={adminScheduleMeta.title}
+                subtitle={adminScheduleMeta.subtitle}
+                semesterLabel={adminWorkspace.data.activeTerm.name}
+                timeSlots={adminWorkspace.data.timeSlots}
+                weekdays={adminWorkspace.data.weekdays}
+                entries={adminPublishedSectionEntries}
+                generatedAt={new Date().toLocaleDateString("pt-BR")}
+                institutionLabel="Academic Suite Official Data"
+                sheetId={`${adminScheduleMeta.sheetId}-PUBLISHED`}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Ainda nao existe grade publicada para a turma filtrada.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">Rascunho atual</p>
+                <p className="text-sm text-muted-foreground">
+                  Espaco de trabalho do admin para conflitos, lacunas e consolidacao da proxima publicacao.
+                </p>
+              </div>
+              <Badge variant="secondary">{adminSectionEntries.length} slots</Badge>
+            </div>
+            {adminSectionEntries.length > 0 ? (
+              <AcademicWeeklySchedule
+                title={adminScheduleMeta.title}
+                subtitle={adminScheduleMeta.subtitle}
+                semesterLabel={adminWorkspace.data.activeTerm.name}
+                timeSlots={adminWorkspace.data.timeSlots}
+                weekdays={adminWorkspace.data.weekdays}
+                entries={adminSectionEntries}
+                generatedAt={new Date().toLocaleDateString("pt-BR")}
+                institutionLabel="Academic Suite Official Data"
+                sheetId={`${adminScheduleMeta.sheetId}-DRAFT`}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Nenhum slot em rascunho para a turma filtrada.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-8">
@@ -298,7 +823,114 @@ export default function TeachingAssignmentPage() {
 
         {isAdmin && adminWorkspace.data && (
           <TabsContent value="admin" className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[1.25fr_1fr]">
+            {adminScheduleManagementSection}
+
+            <WorkflowGuideCard
+              title="Fechamento da grade em 4 etapas"
+              description="A leitura ideal do admin e: conferir envios docentes, fechar lacunas, montar os slots e so depois validar e publicar."
+              nextAction={adminNextAction}
+              metrics={[
+                { label: "Envios recebidos", value: `${adminSubmittedCount}/${adminWorkspace.data.teacherPreferenceSummaries.length}` },
+                { label: "Pendencias", value: String(adminPendingCount) },
+                { label: "Conflitos hard", value: String(adminHardConflictCount) },
+                { label: "Lacunas abertas", value: String(gapRows.length) },
+              ]}
+              steps={[
+                {
+                  label: "Conferir envios dos professores",
+                  description: "Use preferencias e afinidades para ver quem enviou, quem esta pendente e o que cada docente priorizou.",
+                  status: adminPendingCount === 0 ? "done" : "current",
+                },
+                {
+                  label: "Fechar lacunas e coordenacao",
+                  description: "Observe cobertura por turma, pendencias de coordenador e cargas ainda nao atendidas.",
+                  status: gapRows.length === 0 ? "done" : adminPendingCount === 0 ? "current" : "pending",
+                },
+                {
+                  label: "Montar os slots da grade",
+                  description: "Crie e revise os encontros de aula na grade publicada e no rascunho por turma.",
+                  status:
+                    filteredAssignments.length > 0 && adminSectionEntries.length > 0
+                      ? "done"
+                      : adminPendingCount === 0 && gapRows.length === 0
+                        ? "current"
+                        : "pending",
+                },
+                {
+                  label: "Validar e publicar",
+                  description: "Publice apenas quando nao houver conflito hard e a cobertura estiver consistente.",
+                  status: adminReadyToPublish ? "done" : adminHardConflictCount === 0 ? "current" : "pending",
+                },
+              ]}
+              footer="Depois da publicacao, materiais, notas e faltas passam a obedecer a grade oficial. O rascunho continua sendo apenas area de trabalho administrativa."
+            />
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Filtros operacionais</CardTitle>
+                <CardDescription>
+                  Recorte a visao por curso, turma e professor para acompanhar a demonstracao e operar o rascunho.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="filter-course">Curso</Label>
+                  <select
+                    id="filter-course"
+                    value={selectedCourseId ?? ""}
+                    onChange={(event) =>
+                      setSelectedCourseId(event.target.value ? Number(event.target.value) : undefined)
+                    }
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {adminCourseOptions.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-section">Turma</Label>
+                  <select
+                    id="filter-section"
+                    value={selectedSectionId ?? ""}
+                    onChange={(event) =>
+                      setSelectedSectionId(event.target.value ? Number(event.target.value) : undefined)
+                    }
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Todas</option>
+                    {filteredAdminSections.map((section) => (
+                      <option key={section.id} value={section.id}>
+                        {section.code} - {section.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-teacher">Professor</Label>
+                  <select
+                    id="filter-teacher"
+                    value={selectedTeacherId ?? ""}
+                    onChange={(event) =>
+                      setSelectedTeacherId(event.target.value ? Number(event.target.value) : undefined)
+                    }
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {adminWorkspace.data.teachers.map((teacher) => (
+                      <option key={teacher.id} value={teacher.id}>
+                        {teacher.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]">
               <Card>
                 <CardHeader>
                   <CardTitle>Panorama administrativo</CardTitle>
@@ -308,20 +940,22 @@ export default function TeachingAssignmentPage() {
                 </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-4">
                   <div className="rounded-xl border bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Professores</p>
-                    <p className="mt-2 text-3xl font-bold">{adminWorkspace.data.teachers.length}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Professores filtrados</p>
+                    <p className="mt-2 text-3xl font-bold">
+                      {selectedTeacherId ? filteredPreferenceSummaries.length : adminWorkspace.data.teachers.length}
+                    </p>
                   </div>
                   <div className="rounded-xl border bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Turmas</p>
-                    <p className="mt-2 text-3xl font-bold">{adminWorkspace.data.classSections.length}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Turmas em foco</p>
+                    <p className="mt-2 text-3xl font-bold">{filteredAdminSections.length}</p>
                   </div>
                   <div className="rounded-xl border bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Atribuicoes</p>
-                    <p className="mt-2 text-3xl font-bold">{adminWorkspace.data.assignments.length}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Atribuicoes em foco</p>
+                    <p className="mt-2 text-3xl font-bold">{filteredAssignments.length}</p>
                   </div>
                   <div className="rounded-xl border bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Slots em rascunho</p>
-                    <p className="mt-2 text-3xl font-bold">{adminWorkspace.data.draftEntries.length}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Lacunas mapeadas</p>
+                    <p className="mt-2 text-3xl font-bold">{gapRows.length}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -334,6 +968,21 @@ export default function TeachingAssignmentPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div
+                    className={`rounded-xl border p-4 text-sm ${
+                      adminReadyToPublish
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-amber-200 bg-amber-50 text-amber-900"
+                    }`}
+                  >
+                    <p className="font-medium">
+                      {adminReadyToPublish ? "Grade pronta para publicacao." : "Ainda existem bloqueios antes da publicacao."}
+                    </p>
+                    <p className="mt-1">
+                      {adminNextAction}
+                    </p>
+                  </div>
+
                   <div className="grid gap-3 md:grid-cols-2">
                     <Button
                       variant="outline"
@@ -348,7 +997,7 @@ export default function TeachingAssignmentPage() {
                     </Button>
                     <Button
                       onClick={() => publishSchedule.mutate({ notes: "Publicacao administrativa da grade oficial" })}
-                      disabled={publishSchedule.isPending || (validationState?.hardConflictCount ?? 0) > 0}
+                      disabled={publishSchedule.isPending || (activeConflictState?.hardConflictCount ?? 0) > 0}
                     >
                       {publishSchedule.isPending ? "Publicando..." : "Publicar horarios"}
                     </Button>
@@ -367,25 +1016,25 @@ export default function TeachingAssignmentPage() {
                     </p>
                   </div>
 
-                  {validationState && (
+                  {activeConflictState && (
                     <div className="space-y-2">
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant={validationState.hardConflictCount > 0 ? "destructive" : "secondary"}>
-                          Hard: {validationState.hardConflictCount}
+                        <Badge variant={activeConflictState.hardConflictCount > 0 ? "destructive" : "secondary"}>
+                          Hard: {activeConflictState.hardConflictCount}
                         </Badge>
-                        <Badge variant="outline">Soft: {validationState.softConflictCount}</Badge>
+                        <Badge variant="outline">Soft: {activeConflictState.softConflictCount}</Badge>
                       </div>
                       <div className="max-h-52 space-y-2 overflow-y-auto">
-                        {validationState.conflicts.length === 0 ? (
+                        {activeConflictState.conflicts.length === 0 ? (
                           <p className="text-sm text-muted-foreground">Nenhum conflito encontrado.</p>
                         ) : (
-                          validationState.conflicts.map((conflict, index) => (
+                          activeConflictState.conflicts.map((conflict, index) => (
                             <div key={`${conflict.conflictType}-${index}`} className="rounded-lg border p-3 text-sm">
                               <div className="flex items-center gap-2">
                                 <Badge variant={conflict.severity === "hard" ? "destructive" : "outline"}>
                                   {conflict.severity}
                                 </Badge>
-                                <span className="font-medium">{conflict.conflictType}</span>
+                                <span className="font-medium">{formatConflictType(conflict.conflictType)}</span>
                               </div>
                               <p className="mt-2 text-muted-foreground">{conflict.message}</p>
                             </div>
@@ -399,6 +1048,154 @@ export default function TeachingAssignmentPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-3">
+              <Card className="xl:col-span-2">
+                <CardHeader>
+                  <CardTitle>Preferencias e afinidades</CardTitle>
+                  <CardDescription>
+                    Visao administrativa das preferencias registradas, cargas semanais e materias elegiveis persistidas.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {filteredPreferenceSummaries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma preferencia encontrada para o filtro atual.
+                    </p>
+                  ) : (
+                    filteredPreferenceSummaries.map((summary) => (
+                      <div key={summary.teacherId} className="rounded-xl border p-4 space-y-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">{summary.teacherName}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {summary.careerTrack || "Carreira nao definida"} | prioridade {summary.priorityOrder}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="outline">{formatPreferenceStatus(summary.status)}</Badge>
+                            <Badge variant="secondary">
+                              Carga {summary.assignedSlotCount}/{summary.weeklyLoadTargetHours}
+                            </Badge>
+                            <Badge variant="outline">Restante {summary.remainingLoadHours}</Badge>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              Materias preferidas
+                            </p>
+                            {summary.preferredSubjects.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">Professor ainda nao registrou materias.</p>
+                            ) : (
+                              summary.preferredSubjects.map((subject) => (
+                                <div
+                                  key={`${summary.teacherId}-${subject.subjectId}`}
+                                  className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm"
+                                >
+                                  <div>
+                                    <p className="font-medium">
+                                      {subject.priority}. {subject.subjectName}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {subject.compatibilityBand
+                                        ? `Afinidade ${formatCompatibilityBand(subject.compatibilityBand)}`
+                                        : "Afinidade ainda nao persistida"}
+                                    </p>
+                                  </div>
+                                  {subject.finalScore !== null && subject.finalScore !== undefined && (
+                                    <Badge variant="outline">{subject.finalScore}</Badge>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              Turmas desejadas
+                            </p>
+                            {summary.preferredClassSections.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">Nenhuma turma preferida informada.</p>
+                            ) : (
+                              summary.preferredClassSections.map((item) => (
+                                <div
+                                  key={`${summary.teacherId}-${item.subjectId}-${item.classSectionId}`}
+                                  className="rounded-lg border p-3 text-sm"
+                                >
+                                  <p className="font-medium">
+                                    {item.priority}. {item.courseName} | {item.classSectionCode}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{item.subjectName}</p>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                            Materias elegiveis em destaque
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {summary.topEligibleSubjects.length === 0 ? (
+                              <span className="text-sm text-muted-foreground">
+                                Execute a seed demo ou persista o calculo de compatibilidade para ver os destaques.
+                              </span>
+                            ) : (
+                              summary.topEligibleSubjects.map((item) => (
+                                <Badge key={`${summary.teacherId}-${item.subjectId}`} variant="outline">
+                                  {item.subjectName} {item.finalScore}
+                                </Badge>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {summary.notes && (
+                          <div className="rounded-lg bg-slate-50 p-3 text-sm text-muted-foreground">
+                            {summary.notes}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Lacunas e cobertura</CardTitle>
+                  <CardDescription>
+                    Diferenca entre blocos exigidos, grade publicada e novo rascunho em aberto para intervencao.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {gapRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhuma lacuna encontrada para o filtro atual.</p>
+                  ) : (
+                    gapRows.map((row) => (
+                      <div key={row.id} className="rounded-lg border p-3 text-sm">
+                        <p className="font-medium">
+                          {row.classSectionCode} | {row.subjectName}
+                        </p>
+                        <p className="text-muted-foreground">{row.teacherName}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Badge variant={row.publishedGap > 0 ? "destructive" : "secondary"}>
+                            Publicado {row.publishedSlots}/{row.weeklySlotTarget}
+                          </Badge>
+                          <Badge variant={row.draftGap > 0 ? "destructive" : "outline"}>
+                            Rascunho {row.draftSlots}/{row.weeklySlotTarget}
+                          </Badge>
+                          <Badge variant={row.classSection?.coordinatorTeacherId ? "outline" : "destructive"}>
+                            {row.classSection?.coordinatorTeacherId ? "Coordenador ok" : "Coordenador pendente"}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Perfil docente e fila</CardTitle>
@@ -604,7 +1401,7 @@ export default function TeachingAssignmentPage() {
                       className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="">Selecione</option>
-                      {adminWorkspace.data.classSections.map((section) => (
+                      {filteredAdminSections.map((section) => (
                         <option key={section.id} value={section.id}>
                           {section.code} - {section.name}
                         </option>
@@ -636,11 +1433,13 @@ export default function TeachingAssignmentPage() {
                       className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="">Selecione</option>
-                      {adminWorkspace.data.teachers.map((teacher) => (
+                      {adminWorkspace.data.teachers
+                        .filter((teacher) => (selectedTeacherId ? teacher.id === selectedTeacherId : true))
+                        .map((teacher) => (
                         <option key={teacher.id} value={teacher.id}>
                           {teacher.name}
                         </option>
-                      ))}
+                        ))}
                     </select>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
@@ -710,189 +1509,54 @@ export default function TeachingAssignmentPage() {
               </Card>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Grade semanal por turma</CardTitle>
-                  <CardDescription>
-                    Estrutura semanal academica real, com merge por bloco e celulas vazias discretas.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                    <div className="space-y-2 min-w-[260px]">
-                      <Label htmlFor="preview-class">Turma exibida</Label>
-                      <select
-                        id="preview-class"
-                        value={selectedSectionId ?? ""}
-                        onChange={(event) => setSelectedSectionId(Number(event.target.value))}
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        {adminWorkspace.data.classSections.map((section) => (
-                          <option key={section.id} value={section.id}>
-                            {section.code} - {section.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">Publicado: {adminWorkspace.data.publishedEntries.length}</Badge>
-                      <Badge variant="secondary">Rascunho: {adminSectionEntries.length}</Badge>
-                    </div>
-                  </div>
-
-                  <AcademicWeeklySchedule
-                    title={adminScheduleMeta.title}
-                    subtitle={adminScheduleMeta.subtitle}
-                    semesterLabel={adminWorkspace.data.activeTerm.name}
-                    timeSlots={adminWorkspace.data.timeSlots}
-                    weekdays={adminWorkspace.data.weekdays}
-                    entries={adminSectionEntries}
-                    generatedAt={new Date().toLocaleDateString("pt-BR")}
-                    institutionLabel="Academic Suite Official Data"
-                    sheetId={adminScheduleMeta.sheetId}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Slots de aula</CardTitle>
-                  <CardDescription>Crie o encontro oficial entre turma, materia, professor e local.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="slot-assignment">Atribuicao</Label>
-                    <select
-                      id="slot-assignment"
-                      value={slotForm.assignmentId}
-                      onChange={(event) => setSlotForm((current) => ({ ...current, assignmentId: event.target.value }))}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="">Selecione</option>
-                      {adminWorkspace.data.assignments.map((assignment) => (
-                        <option key={assignment.id} value={assignment.id}>
-                          {assignment.classSectionCode} | {assignment.subjectName} | {assignment.teacherName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="slot-weekday">Dia</Label>
-                      <select
-                        id="slot-weekday"
-                        value={slotForm.weekday}
-                        onChange={(event) =>
-                          setSlotForm((current) => ({ ...current, weekday: event.target.value as Weekday }))
-                        }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        {adminWorkspace.data.weekdays.map((weekday) => (
-                          <option key={weekday} value={weekday}>
-                            {WEEKDAY_LABELS[weekday]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="slot-time">Bloco inicial</Label>
-                      <select
-                        id="slot-time"
-                        value={slotForm.timeSlotId}
-                        onChange={(event) => setSlotForm((current) => ({ ...current, timeSlotId: event.target.value }))}
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        <option value="">Selecione</option>
-                        {adminWorkspace.data.timeSlots
-                          .filter((slot) => !slot.isBreak)
-                          .map((slot) => (
-                            <option key={slot.id} value={slot.id}>
-                              {slot.label}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="slot-span">Duracao em blocos</Label>
-                      <Input
-                        id="slot-span"
-                        type="number"
-                        min={1}
-                        value={slotForm.spanSlots}
-                        onChange={(event) => setSlotForm((current) => ({ ...current, spanSlots: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="slot-location">Local</Label>
-                      <select
-                        id="slot-location"
-                        value={slotForm.locationId}
-                        onChange={(event) => setSlotForm((current) => ({ ...current, locationId: event.target.value }))}
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        <option value="">Selecione</option>
-                        {adminWorkspace.data.locations.map((location) => (
-                          <option key={location.id} value={location.id}>
-                            {location.name} ({location.kind})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <Button
-                    className="w-full"
-                    onClick={() =>
-                      createScheduleEntry.mutate({
-                        assignmentId: Number(slotForm.assignmentId),
-                        weekday: slotForm.weekday,
-                        timeSlotId: Number(slotForm.timeSlotId),
-                        spanSlots: Number(slotForm.spanSlots),
-                        locationId: Number(slotForm.locationId),
-                      })
-                    }
-                    disabled={
-                      !slotForm.assignmentId || !slotForm.timeSlotId || !slotForm.locationId || createScheduleEntry.isPending
-                    }
-                  >
-                    {createScheduleEntry.isPending ? "Salvando..." : "Adicionar slot"}
-                  </Button>
-
-                  <div className="space-y-2">
-                    {adminSectionEntries.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Nenhum slot em rascunho para a turma selecionada.</p>
-                    ) : (
-                      adminSectionEntries.map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between rounded-lg border p-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">
-                              {entry.subjectName} | {entry.teacherName}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {WEEKDAY_LABELS[entry.weekday]} | {entry.timeSlotLabel} | {entry.locationName}
-                            </p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            onClick={() => deleteScheduleEntry.mutate(entry.id)}
-                            disabled={deleteScheduleEntry.isPending}
-                          >
-                            Remover
-                          </Button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
           </TabsContent>
         )}
         {isTeacher && teacherWorkspace.data && (
           <TabsContent value="teacher" className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <WorkflowGuideCard
+              title="Seu envio em 4 etapas"
+              description="A leitura ideal do professor e: conferir elegibilidade, escolher materias, indicar turmas e registrar disponibilidade antes de salvar."
+              nextAction={teacherNextAction}
+              metrics={[
+                { label: "Materias elegiveis", value: String(teacherEligibleCount) },
+                { label: "Materias escolhidas", value: String(teacherSelectedSubjectCount) },
+                { label: "Turmas marcadas", value: String(teacherSelectedSectionCount) },
+                {
+                  label: "Carga oficial",
+                  value: `${teacherWorkspace.data.teacher.assignedSlotCount}/${teacherWorkspace.data.teacher.weeklyLoadTargetHours}`,
+                },
+              ]}
+              steps={[
+                {
+                  label: "Revisar sua elegibilidade",
+                  description: "Veja as materias ranqueadas e use o topo da lista como referencia de maior afinidade.",
+                  status: teacherEligibleCount > 0 ? "done" : "pending",
+                },
+                {
+                  label: "Escolher materias",
+                  description: "Marque as disciplinas que deseja assumir neste periodo.",
+                  status: teacherSelectedSubjectCount > 0 ? "done" : teacherEligibleCount > 0 ? "current" : "pending",
+                },
+                {
+                  label: "Associar turmas",
+                  description: "Depois de escolher as materias, indique em quais turmas voce prefere atuar.",
+                  status:
+                    teacherSelectedSectionCount > 0
+                      ? "done"
+                      : teacherSelectedSubjectCount > 0
+                        ? "current"
+                        : "pending",
+                },
+                {
+                  label: "Salvar preferencias",
+                  description: "Ao salvar, o admin usa seu envio para montar o rascunho. Isso nao publica sua grade automaticamente.",
+                  status: teacherSubmissionStatus === "submitted" ? "done" : teacherCanSubmit ? "current" : "pending",
+                },
+              ]}
+              footer={`Carga restante para cobertura oficial: ${teacherWorkspace.data.teacher.remainingLoadHours}. Se o ranking estiver vazio, revise formacao, competencias e historico docente.`}
+            />
+
+            <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
               <Card>
                 <CardHeader>
                   <CardTitle>Fila e carga semanal</CardTitle>
@@ -964,7 +1628,7 @@ export default function TeachingAssignmentPage() {
               </Card>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
               <Card>
                 <CardHeader>
                   <CardTitle>Preferencias do professor</CardTitle>
@@ -973,48 +1637,60 @@ export default function TeachingAssignmentPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  <div className="rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
+                    Fluxo recomendado: 1) revise o ranking de afinidade, 2) marque as materias desejadas, 3) escolha
+                    as turmas correspondentes, 4) registre sua disponibilidade e salve. O envio orienta o admin, mas
+                    nao cria atribuicao oficial automaticamente.
+                  </div>
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-4 w-4 text-primary" />
                       <h3 className="font-semibold">Materias elegiveis ranqueadas</h3>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
-                      {teacherWorkspace.data.eligibleSubjects.slice(0, 8).map((subject) => {
-                        const checked = preferredSubjectIds.includes(subject.subjectId);
-                        return (
-                          <label key={subject.subjectId} className="rounded-xl border p-4 text-sm cursor-pointer bg-white">
-                            <div className="flex items-start gap-3">
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(value) => {
-                                  const nextChecked = Boolean(value);
-                                  setPreferredSubjectIds((current) =>
-                                    nextChecked
-                                      ? current.includes(subject.subjectId)
-                                        ? current
-                                        : [...current, subject.subjectId]
-                                      : current.filter((item) => item !== subject.subjectId),
-                                  );
-                                  if (!nextChecked) {
-                                    setPreferredSectionPairs((current) =>
-                                      current.filter((item) => item.subjectId !== subject.subjectId),
+                      {teacherWorkspace.data.eligibleSubjects.length === 0 ? (
+                        <div className="rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground md:col-span-2">
+                          Nenhuma materia elegivel foi encontrada para este professor. Cadastre formacao,
+                          competencias, historico docente ou ajustes manuais para habilitar o ranking real.
+                        </div>
+                      ) : (
+                        teacherWorkspace.data.eligibleSubjects.slice(0, 8).map((subject) => {
+                          const checked = preferredSubjectIds.includes(subject.subjectId);
+                          return (
+                            <label key={subject.subjectId} className="rounded-xl border p-4 text-sm cursor-pointer bg-white">
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) => {
+                                    const nextChecked = Boolean(value);
+                                    setPreferredSubjectIds((current) =>
+                                      nextChecked
+                                        ? current.includes(subject.subjectId)
+                                          ? current
+                                          : [...current, subject.subjectId]
+                                        : current.filter((item) => item !== subject.subjectId),
                                     );
-                                  }
-                                }}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="font-medium">{subject.subjectName}</p>
-                                  <Badge variant="outline">{subject.finalScore}</Badge>
+                                    if (!nextChecked) {
+                                      setPreferredSectionPairs((current) =>
+                                        current.filter((item) => item.subjectId !== subject.subjectId),
+                                      );
+                                    }
+                                  }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="font-medium">{subject.subjectName}</p>
+                                    <Badge variant="outline">{subject.finalScore}</Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Faixa: {formatCompatibilityBand(subject.compatibilityBand)}
+                                  </p>
                                 </div>
-                                <p className="text-xs text-muted-foreground">
-                                  Faixa: {formatCompatibilityBand(subject.compatibilityBand)}
-                                </p>
                               </div>
-                            </div>
-                          </label>
-                        );
-                      })}
+                            </label>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
 
@@ -1137,6 +1813,21 @@ export default function TeachingAssignmentPage() {
                       onChange={(event) => setTeacherNotes(event.target.value)}
                       placeholder="Preferencias de turno, restricoes pedagogicas, observacoes de disponibilidade..."
                     />
+                  </div>
+
+                  <div
+                    className={`rounded-xl border p-4 text-sm ${
+                      teacherCanSubmit
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-amber-200 bg-amber-50 text-amber-900"
+                    }`}
+                  >
+                    <p className="font-medium">
+                      {teacherCanSubmit ? "Seu envio esta consistente para salvar." : "Seu envio ainda precisa de etapas basicas."}
+                    </p>
+                    <p className="mt-1">
+                      {teacherNextAction}
+                    </p>
                   </div>
 
                   <Button

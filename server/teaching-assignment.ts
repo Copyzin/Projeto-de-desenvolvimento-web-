@@ -23,10 +23,12 @@ import {
   teacherPreferenceClassSections,
   teacherPreferenceSubmissions,
   teacherPreferenceSubjects,
+  teacherSubjectMatchScores,
   users,
 } from "@shared/schema";
 import { db } from "./db";
 import {
+  TEACHER_SUBJECT_COMPATIBILITY_ALGORITHM_VERSION,
   calculateTeacherSubjectCompatibility,
   teacherSubjectCompatibilityService,
 } from "./teacher-subject-compatibility";
@@ -1096,6 +1098,7 @@ export class TeachingAssignmentService {
       weekdays: [...SCHEDULE_WEEKDAYS],
       teacher: {
         id: teacher.id,
+        teacherId: teacher.id,
         name: teacher.name,
         careerTrack: profile?.careerTrack ?? null,
         priorityOrder: profile?.priorityOrder ?? 100,
@@ -1132,51 +1135,71 @@ export class TeachingAssignmentService {
     const { activeTerm, timeSlots } = await this.ensureFoundationalData();
     const latestPublication = await getLatestPublication(activeTerm.id);
 
-    const [teachers, profiles, classSectionRows, assignmentRows, draftEntries, publishedEntries, categories, locationRows, latestRun] =
-      await Promise.all([
-        db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, "teacher")).orderBy(asc(users.name)),
-        db.select().from(teacherAssignmentProfiles),
-        db
-          .select({
-            id: classSections.id,
-            code: classSections.code,
-            name: classSections.name,
-            courseId: courses.id,
-            courseName: courses.name,
-            coordinatorTeacherId: classSections.coordinatorTeacherId,
-            coordinatorTeacherName: users.name,
-          })
-          .from(classSections)
-          .innerJoin(courses, eq(courses.id, classSections.courseId))
-          .leftJoin(users, eq(users.id, classSections.coordinatorTeacherId))
-          .where(eq(classSections.academicTermId, activeTerm.id))
-          .orderBy(asc(courses.name), asc(classSections.name)),
-        db
-          .select({
-            id: classSectionSubjectAssignments.id,
-            classSectionId: classSectionSubjectAssignments.classSectionId,
-            classSectionName: classSections.name,
-            classSectionCode: classSections.code,
-            courseName: courses.name,
-            subjectId: classSectionSubjectAssignments.subjectId,
-            subjectName: subjects.name,
-            teacherId: classSectionSubjectAssignments.teacherId,
-            teacherName: users.name,
-            weeklySlotTarget: classSectionSubjectAssignments.weeklySlotTarget,
-            notes: classSectionSubjectAssignments.notes,
-          })
-          .from(classSectionSubjectAssignments)
-          .innerJoin(classSections, eq(classSections.id, classSectionSubjectAssignments.classSectionId))
-          .innerJoin(courses, eq(courses.id, classSections.courseId))
-          .innerJoin(subjects, eq(subjects.id, classSectionSubjectAssignments.subjectId))
-          .innerJoin(users, eq(users.id, classSectionSubjectAssignments.teacherId))
-          .where(eq(classSections.academicTermId, activeTerm.id)),
-        this.getScheduleEntriesForTerm(activeTerm.id, true),
-        latestPublication ? this.getScheduleEntriesForTerm(activeTerm.id, false).then((rows) => rows.filter((row) => row.publicationId === latestPublication.id)) : Promise.resolve([]),
-        db.select().from(locationCategories).orderBy(asc(locationCategories.name)),
-        db.select().from(locations).orderBy(asc(locations.name)),
-        db.select().from(scheduleGenerationRuns).where(eq(scheduleGenerationRuns.academicTermId, activeTerm.id)).orderBy(desc(scheduleGenerationRuns.createdAt)).then((rows) => rows[0]),
-      ]);
+    const [
+      teachers,
+      profiles,
+      classSectionRows,
+      assignmentRows,
+      draftEntries,
+      publishedEntries,
+      categories,
+      locationRows,
+      latestRun,
+      subjectsList,
+    ] = await Promise.all([
+      db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, "teacher")).orderBy(asc(users.name)),
+      db.select().from(teacherAssignmentProfiles),
+      db
+        .select({
+          id: classSections.id,
+          code: classSections.code,
+          name: classSections.name,
+          courseId: courses.id,
+          courseName: courses.name,
+          coordinatorTeacherId: classSections.coordinatorTeacherId,
+          coordinatorTeacherName: users.name,
+        })
+        .from(classSections)
+        .innerJoin(courses, eq(courses.id, classSections.courseId))
+        .leftJoin(users, eq(users.id, classSections.coordinatorTeacherId))
+        .where(eq(classSections.academicTermId, activeTerm.id))
+        .orderBy(asc(courses.name), asc(classSections.name)),
+      db
+        .select({
+          id: classSectionSubjectAssignments.id,
+          classSectionId: classSectionSubjectAssignments.classSectionId,
+          classSectionName: classSections.name,
+          classSectionCode: classSections.code,
+          courseName: courses.name,
+          subjectId: classSectionSubjectAssignments.subjectId,
+          subjectName: subjects.name,
+          teacherId: classSectionSubjectAssignments.teacherId,
+          teacherName: users.name,
+          weeklySlotTarget: classSectionSubjectAssignments.weeklySlotTarget,
+          notes: classSectionSubjectAssignments.notes,
+        })
+        .from(classSectionSubjectAssignments)
+        .innerJoin(classSections, eq(classSections.id, classSectionSubjectAssignments.classSectionId))
+        .innerJoin(courses, eq(courses.id, classSections.courseId))
+        .innerJoin(subjects, eq(subjects.id, classSectionSubjectAssignments.subjectId))
+        .innerJoin(users, eq(users.id, classSectionSubjectAssignments.teacherId))
+        .where(eq(classSections.academicTermId, activeTerm.id)),
+      this.getScheduleEntriesForTerm(activeTerm.id, true),
+      latestPublication
+        ? this.getScheduleEntriesForTerm(activeTerm.id, false).then((rows) =>
+            rows.filter((row) => row.publicationId === latestPublication.id),
+          )
+        : Promise.resolve([]),
+      db.select().from(locationCategories).orderBy(asc(locationCategories.name)),
+      db.select().from(locations).orderBy(asc(locations.name)),
+      db
+        .select()
+        .from(scheduleGenerationRuns)
+        .where(eq(scheduleGenerationRuns.academicTermId, activeTerm.id))
+        .orderBy(desc(scheduleGenerationRuns.createdAt))
+        .then((rows) => rows[0]),
+      db.select().from(subjects).orderBy(asc(subjects.name)),
+    ]);
 
     const studentCounts = await db
       .select({
@@ -1195,11 +1218,123 @@ export class TeachingAssignmentService {
       )
       .groupBy(enrollments.classSectionId);
 
+    const teacherIds = teachers.map((teacher) => teacher.id);
+    const submissionRows =
+      teacherIds.length === 0
+        ? []
+        : await db
+            .select({
+              id: teacherPreferenceSubmissions.id,
+              teacherId: teacherPreferenceSubmissions.teacherId,
+              status: teacherPreferenceSubmissions.status,
+              notes: teacherPreferenceSubmissions.notes,
+              submittedAt: teacherPreferenceSubmissions.submittedAt,
+            })
+            .from(teacherPreferenceSubmissions)
+            .where(eq(teacherPreferenceSubmissions.academicTermId, activeTerm.id));
+    const submissionIds = submissionRows.map((submission) => submission.id);
+    const [preferenceSubjectRows, preferenceSectionRows, persistedScores, latestConflicts] =
+      await Promise.all([
+        submissionIds.length === 0
+          ? Promise.resolve([])
+          : db
+              .select({
+                submissionId: teacherPreferenceSubjects.submissionId,
+                subjectId: teacherPreferenceSubjects.subjectId,
+                subjectName: subjects.name,
+                priority: teacherPreferenceSubjects.priority,
+              })
+              .from(teacherPreferenceSubjects)
+              .innerJoin(subjects, eq(subjects.id, teacherPreferenceSubjects.subjectId))
+              .where(inArray(teacherPreferenceSubjects.submissionId, submissionIds))
+              .orderBy(asc(teacherPreferenceSubjects.priority), asc(subjects.name)),
+        submissionIds.length === 0
+          ? Promise.resolve([])
+          : db
+              .select({
+                submissionId: teacherPreferenceClassSections.submissionId,
+                subjectId: teacherPreferenceClassSections.subjectId,
+                subjectName: subjects.name,
+                classSectionId: teacherPreferenceClassSections.classSectionId,
+                classSectionCode: classSections.code,
+                classSectionName: classSections.name,
+                courseId: courses.id,
+                courseName: courses.name,
+                priority: teacherPreferenceClassSections.priority,
+              })
+              .from(teacherPreferenceClassSections)
+              .innerJoin(subjects, eq(subjects.id, teacherPreferenceClassSections.subjectId))
+              .innerJoin(classSections, eq(classSections.id, teacherPreferenceClassSections.classSectionId))
+              .innerJoin(courses, eq(courses.id, classSections.courseId))
+              .where(inArray(teacherPreferenceClassSections.submissionId, submissionIds))
+              .orderBy(asc(teacherPreferenceClassSections.priority), asc(classSections.name)),
+        teacherIds.length === 0
+          ? Promise.resolve([])
+          : db
+              .select({
+                teacherId: teacherSubjectMatchScores.teacherId,
+                subjectId: teacherSubjectMatchScores.subjectId,
+                subjectName: subjects.name,
+                finalScore: teacherSubjectMatchScores.finalScore,
+                compatibilityBand: teacherSubjectMatchScores.compatibilityBand,
+              })
+              .from(teacherSubjectMatchScores)
+              .innerJoin(subjects, eq(subjects.id, teacherSubjectMatchScores.subjectId))
+              .where(
+                and(
+                  inArray(teacherSubjectMatchScores.teacherId, teacherIds),
+                  eq(
+                    teacherSubjectMatchScores.algorithmVersion,
+                    TEACHER_SUBJECT_COMPATIBILITY_ALGORITHM_VERSION,
+                  ),
+                ),
+              )
+              .orderBy(desc(teacherSubjectMatchScores.finalScore), asc(subjects.name)),
+        latestRun
+          ? db
+              .select({
+                scheduleEntryId: classSlotConflicts.scheduleEntryId,
+                conflictType: classSlotConflicts.conflictType,
+                severity: classSlotConflicts.severity,
+                message: classSlotConflicts.message,
+                metadata: classSlotConflicts.metadata,
+              })
+              .from(classSlotConflicts)
+              .where(eq(classSlotConflicts.generationRunId, latestRun.id))
+              .orderBy(asc(classSlotConflicts.id))
+          : Promise.resolve([]),
+      ]);
+
     const studentCountMap = new Map(studentCounts.map((row) => [row.classSectionId ?? 0, row.count]));
     const profileMap = new Map(profiles.map((profile) => [profile.teacherId, profile]));
     const assignedByTeacher = new Map<number, number>();
     for (const entry of draftEntries) {
       assignedByTeacher.set(entry.teacherId, (assignedByTeacher.get(entry.teacherId) ?? 0) + entry.spanSlots);
+    }
+
+    const submissionByTeacherId = new Map(submissionRows.map((submission) => [submission.teacherId, submission]));
+    const preferenceSubjectsBySubmissionId = new Map<number, Array<(typeof preferenceSubjectRows)[number]>>();
+    for (const row of preferenceSubjectRows) {
+      const bucket = preferenceSubjectsBySubmissionId.get(row.submissionId) ?? [];
+      bucket.push(row);
+      preferenceSubjectsBySubmissionId.set(row.submissionId, bucket);
+    }
+    const preferenceSectionsBySubmissionId = new Map<number, Array<(typeof preferenceSectionRows)[number]>>();
+    for (const row of preferenceSectionRows) {
+      const bucket = preferenceSectionsBySubmissionId.get(row.submissionId) ?? [];
+      bucket.push(row);
+      preferenceSectionsBySubmissionId.set(row.submissionId, bucket);
+    }
+    const scoreByTeacherAndSubject = new Map(
+      persistedScores.map((score) => [`${score.teacherId}:${score.subjectId}`, score] as const),
+    );
+    const topScoresByTeacher = new Map<number, Array<(typeof persistedScores)[number]>>();
+    for (const score of persistedScores) {
+      const bucket = topScoresByTeacher.get(score.teacherId) ?? [];
+      if (bucket.length < 4 && score.finalScore > 0) {
+        bucket.push(score);
+        topScoresByTeacher.set(score.teacherId, bucket);
+      }
     }
 
     return {
@@ -1212,6 +1347,7 @@ export class TeachingAssignmentService {
         const weeklyLoadTargetHours = profile?.weeklyLoadTargetHours ?? 0;
         return {
           id: teacher.id,
+          teacherId: teacher.id,
           name: teacher.name,
           careerTrack: profile?.careerTrack ?? null,
           priorityOrder: profile?.priorityOrder ?? 100,
@@ -1224,12 +1360,63 @@ export class TeachingAssignmentService {
         ...row,
         studentCount: studentCountMap.get(row.id) ?? 0,
       })),
-      subjects: await db.select().from(subjects).orderBy(asc(subjects.name)),
+      subjects: subjectsList,
       assignments: assignmentRows,
       draftEntries,
       publishedEntries,
+      teacherPreferenceSummaries: teachers.map((teacher) => {
+        const profile = profileMap.get(teacher.id);
+        const submission = submissionByTeacherId.get(teacher.id);
+        const assignedSlotCount = assignedByTeacher.get(teacher.id) ?? 0;
+        const weeklyLoadTargetHours = profile?.weeklyLoadTargetHours ?? 0;
+        const preferredSubjects = submission
+          ? (preferenceSubjectsBySubmissionId.get(submission.id) ?? []).map((item) => {
+              const score = scoreByTeacherAndSubject.get(`${teacher.id}:${item.subjectId}`);
+              return {
+                subjectId: item.subjectId,
+                subjectName: item.subjectName,
+                priority: item.priority,
+                finalScore: score?.finalScore ?? null,
+                compatibilityBand: score?.compatibilityBand ?? null,
+              };
+            })
+          : [];
+        const preferredClassSections = submission
+          ? (preferenceSectionsBySubmissionId.get(submission.id) ?? []).map((item) => ({
+              subjectId: item.subjectId,
+              subjectName: item.subjectName,
+              classSectionId: item.classSectionId,
+              classSectionCode: item.classSectionCode,
+              classSectionName: item.classSectionName,
+              courseId: item.courseId,
+              courseName: item.courseName,
+              priority: item.priority,
+            }))
+          : [];
+        return {
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          status: submission?.status ?? "draft",
+          notes: submission?.notes ?? "",
+          submittedAt: submission?.submittedAt ?? null,
+          careerTrack: profile?.careerTrack ?? null,
+          priorityOrder: profile?.priorityOrder ?? 100,
+          weeklyLoadTargetHours,
+          assignedSlotCount,
+          remainingLoadHours: Math.max(0, weeklyLoadTargetHours - assignedSlotCount),
+          preferredSubjects,
+          preferredClassSections,
+          topEligibleSubjects: (topScoresByTeacher.get(teacher.id) ?? []).map((score) => ({
+            subjectId: score.subjectId,
+            subjectName: score.subjectName,
+            finalScore: score.finalScore,
+            compatibilityBand: score.compatibilityBand,
+          })),
+        };
+      }),
       locationCategories: categories,
       locations: locationRows.filter((location) => location.isActive),
+      latestConflicts,
       latestPublication,
       latestRun,
     };

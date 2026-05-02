@@ -1,0 +1,697 @@
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  doublePrecision,
+  boolean,
+  timestamp,
+  uniqueIndex,
+  primaryKey,
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+import { relations } from "drizzle-orm";
+
+export const users = pgTable(
+  "users",
+  {
+    id: serial("id").primaryKey(),
+    ra: text("ra").notNull().unique(),
+    username: text("username").unique(),
+    password: text("password").notNull(),
+    role: text("role", { enum: ["admin", "teacher", "student"] })
+      .notNull()
+      .default("student"),
+    name: text("name").notNull(),
+    cpf: text("cpf").notNull().unique(),
+    phone: text("phone"),
+    email: text("email").notNull().unique(),
+    avatarUrl: text("avatar_url"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    usersRaIdx: uniqueIndex("users_ra_idx").on(table.ra),
+  }),
+);
+
+export const courses = pgTable("courses", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  teacherId: integer("teacher_id").references(() => users.id),
+  schedule: text("schedule"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const subjects = pgTable("subjects", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  workloadHours: integer("workload_hours").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const courseSubjects = pgTable(
+  "course_subjects",
+  {
+    courseId: integer("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    subjectId: integer("subject_id")
+      .notNull()
+      .references(() => subjects.id, { onDelete: "cascade" }),
+    semester: text("semester"),
+    isRequired: boolean("is_required").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.courseId, table.subjectId] }),
+  }),
+);
+
+export const academicTerms = pgTable("academic_terms", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const classSections = pgTable("class_sections", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id, { onDelete: "cascade" }),
+  academicTermId: integer("academic_term_id")
+    .notNull()
+    .references(() => academicTerms.id, { onDelete: "cascade" }),
+  room: text("room"),
+  scheduleSummary: text("schedule_summary"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const classSectionTeachers = pgTable(
+  "class_section_teachers",
+  {
+    classSectionId: integer("class_section_id")
+      .notNull()
+      .references(() => classSections.id, { onDelete: "cascade" }),
+    teacherId: integer("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.classSectionId, table.teacherId] }),
+  }),
+);
+
+export const enrollments = pgTable(
+  "enrollments",
+  {
+    id: serial("id").primaryKey(),
+    studentId: integer("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: integer("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["active", "completed", "dropped", "locked", "canceled"] })
+      .notNull()
+      .default("active"),
+    classSectionId: integer("class_section_id").references(() => classSections.id, {
+      onDelete: "set null",
+    }),
+    academicTermId: integer("academic_term_id").references(() => academicTerms.id, {
+      onDelete: "set null",
+    }),
+    enrolledAt: timestamp("enrolled_at").notNull().defaultNow(),
+    grade: doublePrecision("grade"),
+    attendance: integer("attendance"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    studentCourseTermUnique: uniqueIndex("enrollments_student_course_term_unique").on(
+      table.studentId,
+      table.courseId,
+      table.academicTermId,
+    ),
+  }),
+);
+
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  isGlobal: boolean("is_global").notNull().default(true),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const announcementTargets = pgTable(
+  "announcement_targets",
+  {
+    announcementId: integer("announcement_id")
+      .notNull()
+      .references(() => announcements.id, { onDelete: "cascade" }),
+    targetType: text("target_type", { enum: ["course", "class_section"] }).notNull(),
+    targetId: integer("target_id").notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.announcementId, table.targetType, table.targetId] }),
+  }),
+);
+
+export const announcementCourses = pgTable(
+  "announcement_courses",
+  {
+    announcementId: integer("announcement_id")
+      .notNull()
+      .references(() => announcements.id, { onDelete: "cascade" }),
+    courseId: integer("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.announcementId, table.courseId] }),
+  }),
+);
+
+export const enrollmentStatusHistory = pgTable("enrollment_status_history", {
+  id: serial("id").primaryKey(),
+  enrollmentId: integer("enrollment_id")
+    .notNull()
+    .references(() => enrollments.id, { onDelete: "cascade" }),
+  previousStatus: text("previous_status"),
+  nextStatus: text("next_status").notNull(),
+  changedByUserId: integer("changed_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const approvedSubjectRecords = pgTable("approved_subject_records", {
+  id: serial("id").primaryKey(),
+  enrollmentId: integer("enrollment_id")
+    .notNull()
+    .references(() => enrollments.id, { onDelete: "cascade" }),
+  studentId: integer("student_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id, { onDelete: "cascade" }),
+  subjectId: integer("subject_id")
+    .notNull()
+    .references(() => subjects.id, { onDelete: "cascade" }),
+  approvedGrade: doublePrecision("approved_grade"),
+  approvedAt: timestamp("approved_at").notNull().defaultNow(),
+  snapshotBatchId: text("snapshot_batch_id"),
+  source: text("source", { enum: ["manual", "lock_snapshot"] })
+    .notNull()
+    .default("lock_snapshot"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["announcement", "finance", "academic", "system"] })
+    .notNull()
+    .default("system"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  senderId: integer("sender_id").references(() => users.id, { onDelete: "set null" }),
+  destinationRoute: text("destination_route").notNull(),
+  relatedEntityType: text("related_entity_type"),
+  relatedEntityId: integer("related_entity_id"),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const courseMaterials = pgTable("course_materials", {
+  id: serial("id").primaryKey(),
+  originalName: text("original_name").notNull(),
+  internalName: text("internal_name").notNull().unique(),
+  storagePath: text("storage_path").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id, { onDelete: "cascade" }),
+  classSectionId: integer("class_section_id").references(() => classSections.id, {
+    onDelete: "set null",
+  }),
+  issuedAt: timestamp("issued_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const userPinnedMaterials = pgTable(
+  "user_pinned_materials",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    materialId: integer("material_id")
+      .notNull()
+      .references(() => courseMaterials.id, { onDelete: "cascade" }),
+    pinnedAt: timestamp("pinned_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userMaterialUnique: uniqueIndex("user_pinned_materials_user_material_unique").on(
+      table.userId,
+      table.materialId,
+    ),
+  }),
+);
+
+export const passwordResetRequests = pgTable("password_reset_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  cancelTokenHash: text("cancel_token_hash").notNull(),
+  requestIp: text("request_ip"),
+  deviceHash: text("device_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  canceledAt: timestamp("canceled_at"),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const blockedDevices = pgTable("blocked_devices", {
+  id: serial("id").primaryKey(),
+  deviceHash: text("device_hash").notNull().unique(),
+  blockedUntil: timestamp("blocked_until").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const usersRelations = relations(users, ({ many }) => ({
+  teachingCourses: many(courses, { relationName: "teacherCourses" }),
+  classSectionAssignments: many(classSectionTeachers),
+  enrollments: many(enrollments),
+  announcements: many(announcements),
+  enrollmentStatusChanges: many(enrollmentStatusHistory),
+  approvedSubjectRecords: many(approvedSubjectRecords),
+  receivedNotifications: many(notifications, { relationName: "notificationRecipient" }),
+  sentNotifications: many(notifications, { relationName: "notificationSender" }),
+  authoredMaterials: many(courseMaterials),
+  pinnedMaterials: many(userPinnedMaterials),
+  passwordResets: many(passwordResetRequests),
+}));
+
+export const coursesRelations = relations(courses, ({ one, many }) => ({
+  teacher: one(users, {
+    fields: [courses.teacherId],
+    references: [users.id],
+    relationName: "teacherCourses",
+  }),
+  enrollments: many(enrollments),
+  classSections: many(classSections),
+  announcementLinks: many(announcementCourses),
+  subjectLinks: many(courseSubjects),
+  approvedSubjectRecords: many(approvedSubjectRecords),
+  materials: many(courseMaterials),
+}));
+
+export const subjectsRelations = relations(subjects, ({ many }) => ({
+  courseLinks: many(courseSubjects),
+  approvedSubjectRecords: many(approvedSubjectRecords),
+}));
+
+export const courseSubjectsRelations = relations(courseSubjects, ({ one }) => ({
+  course: one(courses, {
+    fields: [courseSubjects.courseId],
+    references: [courses.id],
+  }),
+  subject: one(subjects, {
+    fields: [courseSubjects.subjectId],
+    references: [subjects.id],
+  }),
+}));
+
+export const academicTermsRelations = relations(academicTerms, ({ many }) => ({
+  classSections: many(classSections),
+  enrollments: many(enrollments),
+}));
+
+export const classSectionsRelations = relations(classSections, ({ one, many }) => ({
+  course: one(courses, {
+    fields: [classSections.courseId],
+    references: [courses.id],
+  }),
+  academicTerm: one(academicTerms, {
+    fields: [classSections.academicTermId],
+    references: [academicTerms.id],
+  }),
+  teachers: many(classSectionTeachers),
+  enrollments: many(enrollments),
+  materials: many(courseMaterials),
+}));
+
+export const classSectionTeachersRelations = relations(classSectionTeachers, ({ one }) => ({
+  classSection: one(classSections, {
+    fields: [classSectionTeachers.classSectionId],
+    references: [classSections.id],
+  }),
+  teacher: one(users, {
+    fields: [classSectionTeachers.teacherId],
+    references: [users.id],
+  }),
+}));
+
+export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
+  student: one(users, {
+    fields: [enrollments.studentId],
+    references: [users.id],
+  }),
+  course: one(courses, {
+    fields: [enrollments.courseId],
+    references: [courses.id],
+  }),
+  classSection: one(classSections, {
+    fields: [enrollments.classSectionId],
+    references: [classSections.id],
+  }),
+  academicTerm: one(academicTerms, {
+    fields: [enrollments.academicTermId],
+    references: [academicTerms.id],
+  }),
+  statusHistory: many(enrollmentStatusHistory),
+  approvedSubjectRecords: many(approvedSubjectRecords),
+}));
+
+export const announcementsRelations = relations(announcements, ({ one, many }) => ({
+  author: one(users, {
+    fields: [announcements.authorId],
+    references: [users.id],
+  }),
+  courseLinks: many(announcementCourses),
+  targets: many(announcementTargets),
+}));
+
+export const announcementCoursesRelations = relations(announcementCourses, ({ one }) => ({
+  announcement: one(announcements, {
+    fields: [announcementCourses.announcementId],
+    references: [announcements.id],
+  }),
+  course: one(courses, {
+    fields: [announcementCourses.courseId],
+    references: [courses.id],
+  }),
+}));
+
+export const announcementTargetsRelations = relations(announcementTargets, ({ one }) => ({
+  announcement: one(announcements, {
+    fields: [announcementTargets.announcementId],
+    references: [announcements.id],
+  }),
+}));
+
+export const enrollmentStatusHistoryRelations = relations(enrollmentStatusHistory, ({ one }) => ({
+  enrollment: one(enrollments, {
+    fields: [enrollmentStatusHistory.enrollmentId],
+    references: [enrollments.id],
+  }),
+  changedBy: one(users, {
+    fields: [enrollmentStatusHistory.changedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const approvedSubjectRecordsRelations = relations(approvedSubjectRecords, ({ one }) => ({
+  enrollment: one(enrollments, {
+    fields: [approvedSubjectRecords.enrollmentId],
+    references: [enrollments.id],
+  }),
+  student: one(users, {
+    fields: [approvedSubjectRecords.studentId],
+    references: [users.id],
+  }),
+  course: one(courses, {
+    fields: [approvedSubjectRecords.courseId],
+    references: [courses.id],
+  }),
+  subject: one(subjects, {
+    fields: [approvedSubjectRecords.subjectId],
+    references: [subjects.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  recipient: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+    relationName: "notificationRecipient",
+  }),
+  sender: one(users, {
+    fields: [notifications.senderId],
+    references: [users.id],
+    relationName: "notificationSender",
+  }),
+}));
+
+export const courseMaterialsRelations = relations(courseMaterials, ({ one, many }) => ({
+  author: one(users, {
+    fields: [courseMaterials.authorId],
+    references: [users.id],
+  }),
+  course: one(courses, {
+    fields: [courseMaterials.courseId],
+    references: [courses.id],
+  }),
+  classSection: one(classSections, {
+    fields: [courseMaterials.classSectionId],
+    references: [classSections.id],
+  }),
+  pins: many(userPinnedMaterials),
+}));
+
+export const userPinnedMaterialsRelations = relations(userPinnedMaterials, ({ one }) => ({
+  user: one(users, {
+    fields: [userPinnedMaterials.userId],
+    references: [users.id],
+  }),
+  material: one(courseMaterials, {
+    fields: [userPinnedMaterials.materialId],
+    references: [courseMaterials.id],
+  }),
+}));
+
+export const passwordResetRequestsRelations = relations(passwordResetRequests, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetRequests.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  ra: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCourseSchema = createInsertSchema(courses).omit({
+  id: true,
+  code: true,
+  createdAt: true,
+});
+
+export const insertSubjectSchema = createInsertSchema(subjects).omit({
+  id: true,
+  code: true,
+  createdAt: true,
+});
+
+export const insertCourseSubjectSchema = createInsertSchema(courseSubjects).omit({
+  createdAt: true,
+});
+
+export const insertAcademicTermSchema = createInsertSchema(academicTerms).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertClassSectionSchema = createInsertSchema(classSections).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertClassSectionTeacherSchema = createInsertSchema(classSectionTeachers).omit({
+  createdAt: true,
+});
+
+export const insertEnrollmentSchema = createInsertSchema(enrollments).omit({
+  id: true,
+  enrolledAt: true,
+  createdAt: true,
+});
+
+export const insertAnnouncementSchema = createInsertSchema(announcements).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAnnouncementCourseSchema = createInsertSchema(announcementCourses);
+export const insertAnnouncementTargetSchema = createInsertSchema(announcementTargets);
+
+export const insertEnrollmentStatusHistorySchema = createInsertSchema(enrollmentStatusHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertApprovedSubjectRecordSchema = createInsertSchema(approvedSubjectRecords).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  isRead: true,
+  readAt: true,
+  createdAt: true,
+});
+
+export const insertCourseMaterialSchema = createInsertSchema(courseMaterials).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertUserPinnedMaterialSchema = createInsertSchema(userPinnedMaterials).omit({
+  id: true,
+  pinnedAt: true,
+});
+
+export const insertPasswordResetRequestSchema = createInsertSchema(passwordResetRequests).omit({
+  id: true,
+  attempts: true,
+  usedAt: true,
+  canceledAt: true,
+  createdAt: true,
+});
+
+export const insertBlockedDeviceSchema = createInsertSchema(blockedDevices).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type User = typeof users.$inferSelect;
+export type Course = typeof courses.$inferSelect;
+export type Subject = typeof subjects.$inferSelect;
+export type CourseSubject = typeof courseSubjects.$inferSelect;
+export type AcademicTerm = typeof academicTerms.$inferSelect;
+export type ClassSection = typeof classSections.$inferSelect;
+export type ClassSectionTeacher = typeof classSectionTeachers.$inferSelect;
+export type Enrollment = typeof enrollments.$inferSelect;
+export type Announcement = typeof announcements.$inferSelect;
+export type AnnouncementTarget = typeof announcementTargets.$inferSelect;
+export type AnnouncementCourse = typeof announcementCourses.$inferSelect;
+export type EnrollmentStatusHistory = typeof enrollmentStatusHistory.$inferSelect;
+export type ApprovedSubjectRecord = typeof approvedSubjectRecords.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
+export type CourseMaterial = typeof courseMaterials.$inferSelect;
+export type UserPinnedMaterial = typeof userPinnedMaterials.$inferSelect;
+export type PasswordResetRequest = typeof passwordResetRequests.$inferSelect;
+export type BlockedDevice = typeof blockedDevices.$inferSelect;
+
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertCourse = z.infer<typeof insertCourseSchema>;
+export type InsertSubject = z.infer<typeof insertSubjectSchema>;
+export type InsertCourseSubject = z.infer<typeof insertCourseSubjectSchema>;
+export type InsertAcademicTerm = z.infer<typeof insertAcademicTermSchema>;
+export type InsertClassSection = z.infer<typeof insertClassSectionSchema>;
+export type InsertClassSectionTeacher = z.infer<typeof insertClassSectionTeacherSchema>;
+export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
+export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
+export type InsertAnnouncementCourse = z.infer<typeof insertAnnouncementCourseSchema>;
+export type InsertAnnouncementTarget = z.infer<typeof insertAnnouncementTargetSchema>;
+export type InsertEnrollmentStatusHistory = z.infer<typeof insertEnrollmentStatusHistorySchema>;
+export type InsertApprovedSubjectRecord = z.infer<typeof insertApprovedSubjectRecordSchema>;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertCourseMaterial = z.infer<typeof insertCourseMaterialSchema>;
+export type InsertUserPinnedMaterial = z.infer<typeof insertUserPinnedMaterialSchema>;
+export type InsertPasswordResetRequest = z.infer<typeof insertPasswordResetRequestSchema>;
+export type InsertBlockedDevice = z.infer<typeof insertBlockedDeviceSchema>;
+
+export type UserResponse = Omit<User, "password">;
+
+export type CourseResponse = Course & {
+  teacherName?: string;
+  subjects?: Subject[];
+};
+
+export type EnrollmentResponse = Enrollment & {
+  studentName?: string;
+  studentEmail?: string;
+  studentRa?: string;
+  courseName?: string;
+  classSectionCode?: string;
+  classSectionName?: string;
+  academicTermCode?: string;
+};
+
+export type AnnouncementResponse = Announcement & {
+  authorName?: string;
+  courseIds?: number[];
+  classSectionIds?: number[];
+};
+
+export type CourseMaterialResponse = CourseMaterial & {
+  authorName?: string;
+  courseName?: string;
+  classSectionCode?: string;
+  classSectionName?: string;
+  isPinned?: boolean;
+};
+
+export type StudentListResponse = UserResponse & {
+  enrollmentId: number;
+  enrollmentStatus: Enrollment["status"];
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  classSectionId: number | null;
+  classSectionCode?: string;
+  classSectionName?: string;
+  academicTermId?: number | null;
+  academicTermCode?: string;
+};
+
+export type StudentScopeResponse = {
+  courses: Array<{
+    id: number;
+    code: string;
+    name: string;
+  }>;
+  classSections: Array<{
+    id: number;
+    code: string;
+    name: string;
+    courseId: number;
+    academicTermId: number;
+    academicTermCode: string;
+  }>;
+};

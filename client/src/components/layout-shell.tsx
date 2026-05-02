@@ -7,6 +7,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
   BookOpen,
+  CalendarDays,
   CircleDollarSign,
   Download,
   LayoutDashboard,
@@ -117,6 +118,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const navItems = [
     { label: "Painel", href: "/", icon: LayoutDashboard, roles: ["admin", "teacher", "student"] },
     { label: "Cursos", href: "/courses", icon: BookOpen, roles: ["admin", "teacher", "student"] },
+    { label: "Atribuicao de Aulas", href: "/lesson-assignment", icon: CalendarDays, roles: ["admin"] },
     { label: "Alunos", href: "/students", icon: Users, roles: ["admin", "teacher"] },
     { label: "Comunicados", href: "/announcements", icon: Bell, roles: ["admin", "teacher", "student"] },
     { label: "Financeiro", href: "/finances", icon: CircleDollarSign, roles: ["admin", "student"] },

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   academicTerms,
   announcementCourses,
@@ -14,6 +14,11 @@ import {
   courses,
   enrollmentStatusHistory,
   enrollments,
+  lessonLocations,
+  lessonScheduleBlocks,
+  lessonScheduleDrafts,
+  lessonSchedules,
+  lessonScheduleSlots,
   notifications,
   passwordResetRequests,
   subjects,
@@ -34,10 +39,17 @@ import {
   type InsertClassSection,
   type InsertClassSectionSubjectTeacher,
   type InsertEnrollment,
+  type InsertLessonLocation,
   type InsertNotification,
   type InsertPasswordResetRequest,
   type InsertSubject,
   type InsertUser,
+  type LessonLocationResponse,
+  type LessonScheduleDraft,
+  type LessonScheduleDraftPayload,
+  type LessonScheduleResponse,
+  type LessonScheduleSaveBlockInput,
+  type LessonScheduleSaveSlotInput,
   type Notification,
   type PasswordResetRequest,
   type StudentListResponse,
@@ -94,6 +106,8 @@ function uniqueNumbers(values: Array<number | null | undefined>) {
 
 const activeAcademicStatuses: Array<Enrollment["status"]> = ["active", "locked"];
 type ClassPeriod = ClassSection["period"];
+const LESSON_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"] as const;
+const LESSON_NUMBERS = [1, 2, 3, 4] as const;
 
 export interface CreateAnnouncementInput extends InsertAnnouncement {
   courseIds?: number[];
@@ -126,6 +140,7 @@ export interface IStorage {
   createCourse(course: InsertCourse): Promise<Course>;
   updateCourse(id: number, updates: Partial<InsertCourse>): Promise<Course>;
   getOrCreateActiveAcademicTerm(): Promise<AcademicTerm>;
+  getAcademicTerms(): Promise<AcademicTerm[]>;
   createClassSection(section: InsertClassSection): Promise<ClassSection>;
   assignClassSectionSubjectTeachers(assignments: InsertClassSectionSubjectTeacher[]): Promise<void>;
   getTeacherCourseIds(teacherId: number): Promise<number[]>;
@@ -136,6 +151,33 @@ export interface IStorage {
   createSubject(subject: InsertSubject): Promise<SubjectResponse>;
   getCourseSubjects(courseId: number, classSectionId?: number, currentStageNumber?: number): Promise<SubjectResponse[]>;
   setCourseSubjects(courseId: number, subjectIds: number[], stageNumbers?: Record<string | number, number>): Promise<void>;
+
+  getLessonLocations(): Promise<LessonLocationResponse[]>;
+  createLessonLocation(location: InsertLessonLocation): Promise<LessonLocationResponse>;
+  updateLessonLocation(id: number, updates: InsertLessonLocation): Promise<LessonLocationResponse>;
+  deleteLessonLocation(id: number): Promise<number>;
+  getLessonSchedule(classSectionId: number, academicTermId: number): Promise<LessonScheduleResponse | null>;
+  saveLessonSchedule(input: {
+    classSectionId: number;
+    academicTermId: number;
+    period: ClassPeriod;
+    blocks: LessonScheduleSaveBlockInput[];
+    slots: LessonScheduleSaveSlotInput[];
+    userId: number;
+  }): Promise<LessonScheduleResponse>;
+  getLessonScheduleDraft(
+    classSectionId: number,
+    academicTermId: number,
+    userId: number,
+  ): Promise<LessonScheduleDraft | null>;
+  saveLessonScheduleDraft(input: {
+    classSectionId: number;
+    academicTermId: number;
+    userId: number;
+    period: ClassPeriod;
+    draftPayload: LessonScheduleDraftPayload;
+  }): Promise<LessonScheduleDraft>;
+  deleteLessonScheduleDraft(classSectionId: number, academicTermId: number, userId: number): Promise<void>;
 
   getEnrollments(courseId?: number, studentId?: number, classSectionId?: number): Promise<EnrollmentResponse[]>;
   getEnrollmentById(id: number): Promise<Enrollment | undefined>;
@@ -223,6 +265,10 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return created;
+  }
+
+  async getAcademicTerms(): Promise<AcademicTerm[]> {
+    return db.select().from(academicTerms).orderBy(desc(academicTerms.startsAt));
   }
 
   private buildDefaultSectionCode(courseCode: string, termCode: string) {
@@ -694,6 +740,335 @@ export class DatabaseStorage implements IStorage {
         isRequired: true,
       })),
     );
+  }
+
+  async getLessonLocations(): Promise<LessonLocationResponse[]> {
+    const rows = await db
+      .select({
+        id: lessonLocations.id,
+        name: lessonLocations.name,
+        createdAt: lessonLocations.createdAt,
+        updatedAt: lessonLocations.updatedAt,
+        blockCount: count(lessonScheduleBlocks.id),
+      })
+      .from(lessonLocations)
+      .leftJoin(lessonScheduleBlocks, eq(lessonScheduleBlocks.locationId, lessonLocations.id))
+      .groupBy(lessonLocations.id)
+      .orderBy(asc(lessonLocations.name));
+
+    return rows.map((row) => ({ ...row, blockCount: Number(row.blockCount) }));
+  }
+
+  async createLessonLocation(location: InsertLessonLocation): Promise<LessonLocationResponse> {
+    const name = location.name.trim();
+    const [created] = await db
+      .insert(lessonLocations)
+      .values({ name })
+      .onConflictDoUpdate({
+        target: lessonLocations.name,
+        set: { updatedAt: new Date() },
+      })
+      .returning();
+
+    return { ...created, blockCount: 0 };
+  }
+
+  async updateLessonLocation(id: number, updates: InsertLessonLocation): Promise<LessonLocationResponse> {
+    const [updated] = await db
+      .update(lessonLocations)
+      .set({ name: updates.name.trim(), updatedAt: new Date() })
+      .where(eq(lessonLocations.id, id))
+      .returning();
+
+    if (!updated) throw new Error("Localizacao nao encontrada");
+
+    const [{ blockCount }] = await db
+      .select({ blockCount: count(lessonScheduleBlocks.id) })
+      .from(lessonScheduleBlocks)
+      .where(eq(lessonScheduleBlocks.locationId, id));
+
+    return { ...updated, blockCount: Number(blockCount) };
+  }
+
+  async deleteLessonLocation(id: number): Promise<number> {
+    const [location] = await db.select({ id: lessonLocations.id }).from(lessonLocations).where(eq(lessonLocations.id, id));
+    if (!location) throw new Error("Localizacao nao encontrada");
+
+    const [{ blockCount }] = await db
+      .select({ blockCount: count(lessonScheduleBlocks.id) })
+      .from(lessonScheduleBlocks)
+      .where(eq(lessonScheduleBlocks.locationId, id));
+
+    await db.delete(lessonLocations).where(eq(lessonLocations.id, id));
+    return Number(blockCount);
+  }
+
+  async getLessonSchedule(classSectionId: number, academicTermId: number): Promise<LessonScheduleResponse | null> {
+    const [schedule] = await db
+      .select()
+      .from(lessonSchedules)
+      .where(and(eq(lessonSchedules.classSectionId, classSectionId), eq(lessonSchedules.academicTermId, academicTermId)));
+
+    if (!schedule) return null;
+
+    const blocks = await db
+      .select({
+        id: lessonScheduleBlocks.id,
+        scheduleId: lessonScheduleBlocks.scheduleId,
+        subjectId: lessonScheduleBlocks.subjectId,
+        teacherId: lessonScheduleBlocks.teacherId,
+        locationId: lessonScheduleBlocks.locationId,
+        createdAt: lessonScheduleBlocks.createdAt,
+        updatedAt: lessonScheduleBlocks.updatedAt,
+        subjectName: subjects.name,
+        subjectWorkloadHours: subjects.workloadHours,
+        teacherName: users.name,
+        locationName: lessonLocations.name,
+      })
+      .from(lessonScheduleBlocks)
+      .innerJoin(subjects, eq(subjects.id, lessonScheduleBlocks.subjectId))
+      .innerJoin(users, eq(users.id, lessonScheduleBlocks.teacherId))
+      .innerJoin(lessonLocations, eq(lessonLocations.id, lessonScheduleBlocks.locationId))
+      .where(eq(lessonScheduleBlocks.scheduleId, schedule.id))
+      .orderBy(asc(lessonScheduleBlocks.id));
+
+    const slots = await db
+      .select({
+        dayOfWeek: lessonScheduleSlots.dayOfWeek,
+        lessonNumber: lessonScheduleSlots.lessonNumber,
+        blockId: lessonScheduleSlots.blockId,
+      })
+      .from(lessonScheduleSlots)
+      .where(eq(lessonScheduleSlots.scheduleId, schedule.id))
+      .orderBy(asc(lessonScheduleSlots.lessonNumber), asc(lessonScheduleSlots.dayOfWeek));
+
+    return {
+      ...schedule,
+      blocks,
+      slots: slots.map((slot) => ({
+        dayOfWeek: slot.dayOfWeek as LessonScheduleSaveSlotInput["dayOfWeek"],
+        lessonNumber: slot.lessonNumber,
+        blockId: slot.blockId,
+      })),
+    };
+  }
+
+  private validateLessonSlots(blocks: LessonScheduleSaveBlockInput[], slots: LessonScheduleSaveSlotInput[]) {
+    if (slots.length !== 20) {
+      throw new Error("Preencha os 20 slots de aula antes de confirmar");
+    }
+
+    const blockIds = new Set(blocks.map((block) => block.clientId));
+    const slotKeys = new Set<string>();
+
+    for (const slot of slots) {
+      if (!LESSON_DAYS.includes(slot.dayOfWeek)) {
+        throw new Error("Dia da semana invalido");
+      }
+
+      if (!LESSON_NUMBERS.includes(slot.lessonNumber as 1 | 2 | 3 | 4)) {
+        throw new Error("Numero da aula invalido");
+      }
+
+      if (!blockIds.has(slot.blockClientId)) {
+        throw new Error("Slot referencia um bloco invalido");
+      }
+
+      const key = `${slot.dayOfWeek}-${slot.lessonNumber}`;
+      if (slotKeys.has(key)) {
+        throw new Error("Nao e permitido duplicar slots na tabela");
+      }
+      slotKeys.add(key);
+    }
+  }
+
+  private async validateLessonBlocks(courseId: number, blocks: LessonScheduleSaveBlockInput[]) {
+    const seenSubjectIds = new Set<number>();
+    for (const block of blocks) {
+      if (seenSubjectIds.has(block.subjectId)) {
+        throw new Error("Esta materia ja possui um bloco nesta turma e semestre");
+      }
+      seenSubjectIds.add(block.subjectId);
+    }
+
+    const subjectIds = Array.from(new Set(blocks.map((block) => block.subjectId)));
+    const teacherIds = Array.from(new Set(blocks.map((block) => block.teacherId)));
+    const locationIds = Array.from(new Set(blocks.map((block) => block.locationId)));
+
+    const courseSubjectRows =
+      subjectIds.length > 0
+        ? await db
+            .select({ subjectId: courseSubjects.subjectId })
+            .from(courseSubjects)
+            .where(and(eq(courseSubjects.courseId, courseId), inArray(courseSubjects.subjectId, subjectIds)))
+        : [];
+    if (courseSubjectRows.length !== subjectIds.length) {
+      throw new Error("Materia invalida para o curso da turma");
+    }
+
+    const teacherRows =
+      teacherIds.length > 0
+        ? await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.role, "teacher"), inArray(users.id, teacherIds)))
+        : [];
+    if (teacherRows.length !== teacherIds.length) {
+      throw new Error("Professor invalido");
+    }
+
+    const locationRows =
+      locationIds.length > 0
+        ? await db.select({ id: lessonLocations.id }).from(lessonLocations).where(inArray(lessonLocations.id, locationIds))
+        : [];
+    if (locationRows.length !== locationIds.length) {
+      throw new Error("Localizacao invalida");
+    }
+  }
+
+  async saveLessonSchedule(input: {
+    classSectionId: number;
+    academicTermId: number;
+    period: ClassPeriod;
+    blocks: LessonScheduleSaveBlockInput[];
+    slots: LessonScheduleSaveSlotInput[];
+    userId: number;
+  }): Promise<LessonScheduleResponse> {
+    const [section] = await db
+      .select({ id: classSections.id, courseId: classSections.courseId })
+      .from(classSections)
+      .where(eq(classSections.id, input.classSectionId));
+    if (!section) throw new Error("Turma invalida");
+
+    const [term] = await db.select({ id: academicTerms.id }).from(academicTerms).where(eq(academicTerms.id, input.academicTermId));
+    if (!term) throw new Error("Semestre letivo invalido");
+
+    this.validateLessonSlots(input.blocks, input.slots);
+    await this.validateLessonBlocks(section.courseId, input.blocks);
+
+    await db.transaction(async (tx) => {
+      await tx.update(classSections).set({ period: input.period }).where(eq(classSections.id, input.classSectionId));
+      await tx
+        .delete(lessonSchedules)
+        .where(
+          and(
+            eq(lessonSchedules.classSectionId, input.classSectionId),
+            eq(lessonSchedules.academicTermId, input.academicTermId),
+          ),
+        );
+
+      const [schedule] = await tx
+        .insert(lessonSchedules)
+        .values({
+          classSectionId: input.classSectionId,
+          academicTermId: input.academicTermId,
+          period: input.period,
+          createdByUserId: input.userId,
+          updatedByUserId: input.userId,
+        })
+        .returning();
+
+      const blockIdByClientId = new Map<string, number>();
+      for (const block of input.blocks) {
+        const [createdBlock] = await tx
+          .insert(lessonScheduleBlocks)
+          .values({
+            scheduleId: schedule.id,
+            subjectId: block.subjectId,
+            teacherId: block.teacherId,
+            locationId: block.locationId,
+          })
+          .returning();
+        blockIdByClientId.set(block.clientId, createdBlock.id);
+      }
+
+      await tx.insert(lessonScheduleSlots).values(
+        input.slots.map((slot) => ({
+          scheduleId: schedule.id,
+          blockId: blockIdByClientId.get(slot.blockClientId)!,
+          dayOfWeek: slot.dayOfWeek,
+          lessonNumber: slot.lessonNumber,
+        })),
+      );
+
+      await tx
+        .delete(lessonScheduleDrafts)
+        .where(
+          and(
+            eq(lessonScheduleDrafts.classSectionId, input.classSectionId),
+            eq(lessonScheduleDrafts.academicTermId, input.academicTermId),
+            eq(lessonScheduleDrafts.userId, input.userId),
+          ),
+        );
+    });
+
+    const saved = await this.getLessonSchedule(input.classSectionId, input.academicTermId);
+    if (!saved) throw new Error("Nao foi possivel carregar a tabela salva");
+    return saved;
+  }
+
+  async getLessonScheduleDraft(
+    classSectionId: number,
+    academicTermId: number,
+    userId: number,
+  ): Promise<LessonScheduleDraft | null> {
+    const [draft] = await db
+      .select()
+      .from(lessonScheduleDrafts)
+      .where(
+        and(
+          eq(lessonScheduleDrafts.classSectionId, classSectionId),
+          eq(lessonScheduleDrafts.academicTermId, academicTermId),
+          eq(lessonScheduleDrafts.userId, userId),
+        ),
+      );
+
+    return draft ?? null;
+  }
+
+  async saveLessonScheduleDraft(input: {
+    classSectionId: number;
+    academicTermId: number;
+    userId: number;
+    period: ClassPeriod;
+    draftPayload: LessonScheduleDraftPayload;
+  }): Promise<LessonScheduleDraft> {
+    const [draft] = await db
+      .insert(lessonScheduleDrafts)
+      .values({
+        classSectionId: input.classSectionId,
+        academicTermId: input.academicTermId,
+        userId: input.userId,
+        period: input.period,
+        draftPayload: input.draftPayload,
+      })
+      .onConflictDoUpdate({
+        target: [
+          lessonScheduleDrafts.classSectionId,
+          lessonScheduleDrafts.academicTermId,
+          lessonScheduleDrafts.userId,
+        ],
+        set: {
+          period: input.period,
+          draftPayload: input.draftPayload,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return draft;
+  }
+
+  async deleteLessonScheduleDraft(classSectionId: number, academicTermId: number, userId: number): Promise<void> {
+    await db
+      .delete(lessonScheduleDrafts)
+      .where(
+        and(
+          eq(lessonScheduleDrafts.classSectionId, classSectionId),
+          eq(lessonScheduleDrafts.academicTermId, academicTermId),
+          eq(lessonScheduleDrafts.userId, userId),
+        ),
+      );
   }
 
   async getEnrollments(courseId?: number, studentId?: number, classSectionId?: number): Promise<EnrollmentResponse[]> {

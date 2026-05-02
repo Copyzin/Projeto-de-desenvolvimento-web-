@@ -314,6 +314,10 @@ export async function seedDatabase() {
     email: "admin@academic.local",
   });
 
+  for (const locationName of ["LAB 4", "SALA 23", "LAB 2", "SALA 12"]) {
+    await storage.createLessonLocation({ name: locationName });
+  }
+
   const teacherByName = new Map<string, Awaited<ReturnType<typeof storage.createUser>>>();
   for (let index = 0; index < uniqueTeacherNames().length; index += 1) {
     const name = uniqueTeacherNames()[index];

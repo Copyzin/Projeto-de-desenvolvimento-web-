@@ -5,6 +5,7 @@ import {
   integer,
   doublePrecision,
   boolean,
+  jsonb,
   timestamp,
   uniqueIndex,
   primaryKey,
@@ -134,6 +135,110 @@ export const classSectionSubjectTeachers = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.classSectionId, table.subjectId, table.teacherId] }),
+  }),
+);
+
+export const lessonLocations = pgTable("lesson_locations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const lessonSchedules = pgTable(
+  "lesson_schedules",
+  {
+    id: serial("id").primaryKey(),
+    classSectionId: integer("class_section_id")
+      .notNull()
+      .references(() => classSections.id, { onDelete: "cascade" }),
+    academicTermId: integer("academic_term_id")
+      .notNull()
+      .references(() => academicTerms.id, { onDelete: "cascade" }),
+    period: text("period", { enum: ["matutino", "vespertino", "noturno"] })
+      .notNull()
+      .default("noturno"),
+    createdByUserId: integer("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedByUserId: integer("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    classSectionTermUnique: uniqueIndex("lesson_schedules_class_section_term_unique").on(
+      table.classSectionId,
+      table.academicTermId,
+    ),
+  }),
+);
+
+export const lessonScheduleBlocks = pgTable("lesson_schedule_blocks", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id")
+    .notNull()
+    .references(() => lessonSchedules.id, { onDelete: "cascade" }),
+  subjectId: integer("subject_id")
+    .notNull()
+    .references(() => subjects.id, { onDelete: "restrict" }),
+  teacherId: integer("teacher_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+  locationId: integer("location_id")
+    .notNull()
+    .references(() => lessonLocations.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const lessonScheduleSlots = pgTable(
+  "lesson_schedule_slots",
+  {
+    scheduleId: integer("schedule_id")
+      .notNull()
+      .references(() => lessonSchedules.id, { onDelete: "cascade" }),
+    blockId: integer("block_id")
+      .notNull()
+      .references(() => lessonScheduleBlocks.id, { onDelete: "cascade" }),
+    dayOfWeek: text("day_of_week", {
+      enum: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    }).notNull(),
+    lessonNumber: integer("lesson_number").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.scheduleId, table.dayOfWeek, table.lessonNumber] }),
+  }),
+);
+
+export const lessonScheduleDrafts = pgTable(
+  "lesson_schedule_drafts",
+  {
+    id: serial("id").primaryKey(),
+    classSectionId: integer("class_section_id")
+      .notNull()
+      .references(() => classSections.id, { onDelete: "cascade" }),
+    academicTermId: integer("academic_term_id")
+      .notNull()
+      .references(() => academicTerms.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period", { enum: ["matutino", "vespertino", "noturno"] })
+      .notNull()
+      .default("noturno"),
+    draftPayload: jsonb("draft_payload").$type<Record<string, unknown>>().notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    classSectionTermUserUnique: uniqueIndex("lesson_schedule_drafts_scope_unique").on(
+      table.classSectionId,
+      table.academicTermId,
+      table.userId,
+    ),
   }),
 );
 
@@ -334,6 +439,9 @@ export const blockedDevices = pgTable("blocked_devices", {
 export const usersRelations = relations(users, ({ many }) => ({
   classSectionAssignments: many(classSectionTeachers),
   subjectAssignments: many(classSectionSubjectTeachers),
+  createdLessonSchedules: many(lessonSchedules, { relationName: "lessonScheduleCreator" }),
+  updatedLessonSchedules: many(lessonSchedules, { relationName: "lessonScheduleUpdater" }),
+  lessonScheduleDrafts: many(lessonScheduleDrafts),
   enrollments: many(enrollments),
   announcements: many(announcements),
   enrollmentStatusChanges: many(enrollmentStatusHistory),
@@ -356,6 +464,7 @@ export const coursesRelations = relations(courses, ({ many }) => ({
 
 export const subjectsRelations = relations(subjects, ({ many }) => ({
   courseLinks: many(courseSubjects),
+  lessonScheduleBlocks: many(lessonScheduleBlocks),
   approvedSubjectRecords: many(approvedSubjectRecords),
 }));
 
@@ -372,6 +481,8 @@ export const courseSubjectsRelations = relations(courseSubjects, ({ one }) => ({
 
 export const academicTermsRelations = relations(academicTerms, ({ many }) => ({
   classSections: many(classSections),
+  lessonSchedules: many(lessonSchedules),
+  lessonScheduleDrafts: many(lessonScheduleDrafts),
   enrollments: many(enrollments),
 }));
 
@@ -390,6 +501,8 @@ export const classSectionsRelations = relations(classSections, ({ one, many }) =
   }),
   teachers: many(classSectionTeachers),
   subjectTeachers: many(classSectionSubjectTeachers),
+  lessonSchedules: many(lessonSchedules),
+  lessonScheduleDrafts: many(lessonScheduleDrafts),
   enrollments: many(enrollments),
   materials: many(courseMaterials),
 }));
@@ -422,6 +535,79 @@ export const classSectionSubjectTeachersRelations = relations(
     }),
   }),
 );
+
+export const lessonLocationsRelations = relations(lessonLocations, ({ many }) => ({
+  lessonScheduleBlocks: many(lessonScheduleBlocks),
+}));
+
+export const lessonSchedulesRelations = relations(lessonSchedules, ({ one, many }) => ({
+  classSection: one(classSections, {
+    fields: [lessonSchedules.classSectionId],
+    references: [classSections.id],
+  }),
+  academicTerm: one(academicTerms, {
+    fields: [lessonSchedules.academicTermId],
+    references: [academicTerms.id],
+  }),
+  createdBy: one(users, {
+    fields: [lessonSchedules.createdByUserId],
+    references: [users.id],
+    relationName: "lessonScheduleCreator",
+  }),
+  updatedBy: one(users, {
+    fields: [lessonSchedules.updatedByUserId],
+    references: [users.id],
+    relationName: "lessonScheduleUpdater",
+  }),
+  blocks: many(lessonScheduleBlocks),
+  slots: many(lessonScheduleSlots),
+}));
+
+export const lessonScheduleBlocksRelations = relations(lessonScheduleBlocks, ({ one, many }) => ({
+  schedule: one(lessonSchedules, {
+    fields: [lessonScheduleBlocks.scheduleId],
+    references: [lessonSchedules.id],
+  }),
+  subject: one(subjects, {
+    fields: [lessonScheduleBlocks.subjectId],
+    references: [subjects.id],
+  }),
+  teacher: one(users, {
+    fields: [lessonScheduleBlocks.teacherId],
+    references: [users.id],
+  }),
+  location: one(lessonLocations, {
+    fields: [lessonScheduleBlocks.locationId],
+    references: [lessonLocations.id],
+  }),
+  slots: many(lessonScheduleSlots),
+}));
+
+export const lessonScheduleSlotsRelations = relations(lessonScheduleSlots, ({ one }) => ({
+  schedule: one(lessonSchedules, {
+    fields: [lessonScheduleSlots.scheduleId],
+    references: [lessonSchedules.id],
+  }),
+  block: one(lessonScheduleBlocks, {
+    fields: [lessonScheduleSlots.blockId],
+    references: [lessonScheduleBlocks.id],
+  }),
+}));
+
+export const lessonScheduleDraftsRelations = relations(lessonScheduleDrafts, ({ one }) => ({
+  classSection: one(classSections, {
+    fields: [lessonScheduleDrafts.classSectionId],
+    references: [classSections.id],
+  }),
+  academicTerm: one(academicTerms, {
+    fields: [lessonScheduleDrafts.academicTermId],
+    references: [academicTerms.id],
+  }),
+  user: one(users, {
+    fields: [lessonScheduleDrafts.userId],
+    references: [users.id],
+  }),
+}));
 
 export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
   student: one(users, {
@@ -591,6 +777,34 @@ export const insertClassSectionSubjectTeacherSchema = createInsertSchema(
   createdAt: true,
 });
 
+export const insertLessonLocationSchema = createInsertSchema(lessonLocations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertLessonScheduleSchema = createInsertSchema(lessonSchedules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertLessonScheduleBlockSchema = createInsertSchema(lessonScheduleBlocks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertLessonScheduleSlotSchema = createInsertSchema(lessonScheduleSlots).omit({
+  createdAt: true,
+});
+
+export const insertLessonScheduleDraftSchema = createInsertSchema(lessonScheduleDrafts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertEnrollmentSchema = createInsertSchema(enrollments).omit({
   id: true,
   enrolledAt: true,
@@ -653,6 +867,11 @@ export type AcademicTerm = typeof academicTerms.$inferSelect;
 export type ClassSection = typeof classSections.$inferSelect;
 export type ClassSectionTeacher = typeof classSectionTeachers.$inferSelect;
 export type ClassSectionSubjectTeacher = typeof classSectionSubjectTeachers.$inferSelect;
+export type LessonLocation = typeof lessonLocations.$inferSelect;
+export type LessonSchedule = typeof lessonSchedules.$inferSelect;
+export type LessonScheduleBlock = typeof lessonScheduleBlocks.$inferSelect;
+export type LessonScheduleSlot = typeof lessonScheduleSlots.$inferSelect;
+export type LessonScheduleDraft = typeof lessonScheduleDrafts.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type Announcement = typeof announcements.$inferSelect;
 export type AnnouncementTarget = typeof announcementTargets.$inferSelect;
@@ -675,6 +894,11 @@ export type InsertClassSectionTeacher = z.infer<typeof insertClassSectionTeacher
 export type InsertClassSectionSubjectTeacher = z.infer<
   typeof insertClassSectionSubjectTeacherSchema
 >;
+export type InsertLessonLocation = z.infer<typeof insertLessonLocationSchema>;
+export type InsertLessonSchedule = z.infer<typeof insertLessonScheduleSchema>;
+export type InsertLessonScheduleBlock = z.infer<typeof insertLessonScheduleBlockSchema>;
+export type InsertLessonScheduleSlot = z.infer<typeof insertLessonScheduleSlotSchema>;
+export type InsertLessonScheduleDraft = z.infer<typeof insertLessonScheduleDraftSchema>;
 export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
 export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
 export type InsertAnnouncementCourse = z.infer<typeof insertAnnouncementCourseSchema>;
@@ -698,6 +922,50 @@ export type SubjectResponse = Subject & {
   stageNumber?: number;
   teacherNames?: string[];
   academicStatus?: "Aprovado" | "Cursando" | "A cursar";
+};
+
+export type LessonDayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday";
+
+export type LessonLocationResponse = LessonLocation & {
+  blockCount?: number;
+};
+
+export type LessonScheduleBlockResponse = LessonScheduleBlock & {
+  clientId?: string;
+  subjectName: string;
+  subjectWorkloadHours: number;
+  teacherName: string;
+  locationName: string;
+};
+
+export type LessonScheduleSlotResponse = {
+  dayOfWeek: LessonDayOfWeek;
+  lessonNumber: number;
+  blockId: number;
+};
+
+export type LessonScheduleResponse = LessonSchedule & {
+  blocks: LessonScheduleBlockResponse[];
+  slots: LessonScheduleSlotResponse[];
+};
+
+export type LessonScheduleSaveBlockInput = {
+  clientId: string;
+  subjectId: number;
+  teacherId: number;
+  locationId: number;
+};
+
+export type LessonScheduleSaveSlotInput = {
+  dayOfWeek: LessonDayOfWeek;
+  lessonNumber: number;
+  blockClientId: string;
+};
+
+export type LessonScheduleDraftPayload = {
+  period: ClassSection["period"];
+  blocks: LessonScheduleSaveBlockInput[];
+  slots: LessonScheduleSaveSlotInput[];
 };
 
 export type EnrollmentResponse = Enrollment & {

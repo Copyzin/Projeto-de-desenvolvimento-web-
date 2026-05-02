@@ -678,6 +678,117 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get(api.lessonSchedules.academicTerms.list.path, requireRoles("admin"), async (_req, res) => {
+    try {
+      const terms = await storage.getAcademicTerms();
+      return res.json(terms);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao buscar semestres letivos");
+    }
+  });
+
+  app.get(api.lessonSchedules.locations.list.path, requireRoles("admin"), async (_req, res) => {
+    try {
+      const locations = await storage.getLessonLocations();
+      return res.json(locations);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao buscar localizacoes");
+    }
+  });
+
+  app.post(api.lessonSchedules.locations.create.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const input = api.lessonSchedules.locations.create.input.parse(req.body);
+      const location = await storage.createLessonLocation(input);
+      return res.status(201).json(location);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao criar localizacao");
+    }
+  });
+
+  app.patch(api.lessonSchedules.locations.update.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const locationId = Number(req.params.id);
+      if (!Number.isFinite(locationId)) {
+        return res.status(400).json({ message: "Localizacao invalida" });
+      }
+
+      const input = api.lessonSchedules.locations.update.input.parse(req.body);
+      const location = await storage.updateLessonLocation(locationId, input);
+      return res.json(location);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao atualizar localizacao");
+    }
+  });
+
+  app.delete(api.lessonSchedules.locations.remove.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const locationId = Number(req.params.id);
+      if (!Number.isFinite(locationId)) {
+        return res.status(400).json({ message: "Localizacao invalida" });
+      }
+
+      const deletedBlocks = await storage.deleteLessonLocation(locationId);
+      return res.json({ message: "Localizacao excluida", deletedBlocks });
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao excluir localizacao");
+    }
+  });
+
+  app.get(api.lessonSchedules.get.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const input = api.lessonSchedules.get.input.parse(req.query);
+      const schedule = await storage.getLessonSchedule(input.classSectionId, input.academicTermId);
+      return res.json(schedule);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao buscar tabela de aulas");
+    }
+  });
+
+  app.put(api.lessonSchedules.save.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const input = api.lessonSchedules.save.input.parse(req.body);
+      const schedule = await storage.saveLessonSchedule({ ...input, userId: user.id });
+      return res.json(schedule);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao salvar tabela de aulas");
+    }
+  });
+
+  app.get(api.lessonSchedules.draft.get.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const input = api.lessonSchedules.draft.get.input.parse(req.query);
+      const draft = await storage.getLessonScheduleDraft(input.classSectionId, input.academicTermId, user.id);
+      return res.json(draft);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao buscar rascunho");
+    }
+  });
+
+  app.put(api.lessonSchedules.draft.save.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const input = api.lessonSchedules.draft.save.input.parse(req.body);
+      const draft = await storage.saveLessonScheduleDraft({ ...input, userId: user.id });
+      return res.json(draft);
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao salvar rascunho");
+    }
+  });
+
+  app.delete(api.lessonSchedules.draft.remove.path, requireRoles("admin"), async (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const input = api.lessonSchedules.draft.remove.input.parse(req.query);
+      await storage.deleteLessonScheduleDraft(input.classSectionId, input.academicTermId, user.id);
+      return res.json({ message: "Rascunho removido" });
+    } catch (error) {
+      return handleRouteError(res, error, "Erro ao remover rascunho");
+    }
+  });
+
   app.get(api.announcements.list.path, requireAuth, async (req, res) => {
     const user = getAuthUser(req);
     const courseId = parseOptionalPositiveInt(req.query.courseId);

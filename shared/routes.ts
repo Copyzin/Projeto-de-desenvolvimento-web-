@@ -4,6 +4,8 @@ const roleSchema = z.enum(["admin", "teacher", "student"]);
 const enrollmentStatusSchema = z.enum(["active", "completed", "dropped", "locked", "canceled"]);
 const notificationTypeSchema = z.enum(["announcement", "finance", "academic", "system"]);
 const classPeriodSchema = z.enum(["matutino", "vespertino", "noturno"]);
+const lessonDaySchema = z.enum(["monday", "tuesday", "wednesday", "thursday", "friday"]);
+const lessonNumberSchema = z.coerce.number().int().min(1).max(4);
 const decimalGradeSchema = z
   .coerce
   .number()
@@ -59,6 +61,88 @@ export const classSectionSchema = z.object({
   currentStageNumber: z.number(),
   coordinatorTeacherId: z.number().nullable().optional(),
   coordinatorTeacherName: z.string().optional(),
+});
+
+export const academicTermSchema = z.object({
+  id: z.number(),
+  code: z.string(),
+  name: z.string(),
+  startsAt: z.string().or(z.date()),
+  endsAt: z.string().or(z.date()),
+  isActive: z.boolean(),
+  createdAt: z.string().or(z.date()).optional(),
+});
+
+export const lessonLocationSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  blockCount: z.number().optional(),
+  createdAt: z.string().or(z.date()).optional(),
+  updatedAt: z.string().or(z.date()).optional(),
+});
+
+export const lessonScheduleBlockInputSchema = z.object({
+  clientId: z.string().min(1),
+  subjectId: z.coerce.number().int().positive(),
+  teacherId: z.coerce.number().int().positive(),
+  locationId: z.coerce.number().int().positive(),
+});
+
+export const lessonScheduleSlotInputSchema = z.object({
+  dayOfWeek: lessonDaySchema,
+  lessonNumber: lessonNumberSchema,
+  blockClientId: z.string().min(1),
+});
+
+export const lessonScheduleDraftPayloadSchema = z.object({
+  period: classPeriodSchema,
+  blocks: z.array(lessonScheduleBlockInputSchema),
+  slots: z.array(lessonScheduleSlotInputSchema),
+});
+
+export const lessonScheduleBlockSchema = z.object({
+  id: z.number(),
+  scheduleId: z.number(),
+  subjectId: z.number(),
+  teacherId: z.number(),
+  locationId: z.number(),
+  subjectName: z.string(),
+  subjectWorkloadHours: z.number(),
+  teacherName: z.string(),
+  locationName: z.string(),
+  clientId: z.string().optional(),
+  createdAt: z.string().or(z.date()).optional(),
+  updatedAt: z.string().or(z.date()).optional(),
+});
+
+export const lessonScheduleSlotSchema = z.object({
+  dayOfWeek: lessonDaySchema,
+  lessonNumber: z.number(),
+  blockId: z.number(),
+});
+
+export const lessonScheduleSchema = z.object({
+  id: z.number(),
+  classSectionId: z.number(),
+  academicTermId: z.number(),
+  period: classPeriodSchema,
+  createdByUserId: z.number().nullable().optional(),
+  updatedByUserId: z.number().nullable().optional(),
+  createdAt: z.string().or(z.date()).optional(),
+  updatedAt: z.string().or(z.date()).optional(),
+  blocks: z.array(lessonScheduleBlockSchema),
+  slots: z.array(lessonScheduleSlotSchema),
+});
+
+export const lessonScheduleDraftSchema = z.object({
+  id: z.number(),
+  classSectionId: z.number(),
+  academicTermId: z.number(),
+  userId: z.number(),
+  period: classPeriodSchema,
+  draftPayload: lessonScheduleDraftPayloadSchema,
+  createdAt: z.string().or(z.date()).optional(),
+  updatedAt: z.string().or(z.date()).optional(),
 });
 
 export const enrollmentSchema = z.object({
@@ -476,6 +560,126 @@ export const api = {
       responses: {
         200: enrollmentSchema,
         404: errorSchemas.notFound,
+      },
+    },
+  },
+  lessonSchedules: {
+    academicTerms: {
+      list: {
+        method: "GET" as const,
+        path: "/api/lesson-schedules/academic-terms" as const,
+        responses: {
+          200: z.array(academicTermSchema),
+        },
+      },
+    },
+    locations: {
+      list: {
+        method: "GET" as const,
+        path: "/api/lesson-schedules/locations" as const,
+        responses: {
+          200: z.array(lessonLocationSchema),
+        },
+      },
+      create: {
+        method: "POST" as const,
+        path: "/api/lesson-schedules/locations" as const,
+        input: z.object({
+          name: z.string().min(2, "Localizacao obrigatoria").max(80),
+        }),
+        responses: {
+          201: lessonLocationSchema,
+          400: errorSchemas.validation,
+        },
+      },
+      update: {
+        method: "PATCH" as const,
+        path: "/api/lesson-schedules/locations/:id" as const,
+        input: z.object({
+          name: z.string().min(2, "Localizacao obrigatoria").max(80),
+        }),
+        responses: {
+          200: lessonLocationSchema,
+          400: errorSchemas.validation,
+          404: errorSchemas.notFound,
+        },
+      },
+      remove: {
+        method: "DELETE" as const,
+        path: "/api/lesson-schedules/locations/:id" as const,
+        responses: {
+          200: z.object({ message: z.string(), deletedBlocks: z.number() }),
+          404: errorSchemas.notFound,
+        },
+      },
+    },
+    get: {
+      method: "GET" as const,
+      path: "/api/lesson-schedules" as const,
+      input: z.object({
+        classSectionId: z.coerce.number().int().positive(),
+        academicTermId: z.coerce.number().int().positive(),
+      }),
+      responses: {
+        200: lessonScheduleSchema.nullable(),
+        403: errorSchemas.forbidden,
+      },
+    },
+    save: {
+      method: "PUT" as const,
+      path: "/api/lesson-schedules" as const,
+      input: z.object({
+        classSectionId: z.coerce.number().int().positive(),
+        academicTermId: z.coerce.number().int().positive(),
+        period: classPeriodSchema,
+        blocks: z.array(lessonScheduleBlockInputSchema).min(1, "Crie ao menos um bloco"),
+        slots: z.array(lessonScheduleSlotInputSchema).length(20, "Preencha os 20 slots de aula"),
+      }),
+      responses: {
+        200: lessonScheduleSchema,
+        400: errorSchemas.validation,
+        403: errorSchemas.forbidden,
+      },
+    },
+    draft: {
+      get: {
+        method: "GET" as const,
+        path: "/api/lesson-schedules/draft" as const,
+        input: z.object({
+          classSectionId: z.coerce.number().int().positive(),
+          academicTermId: z.coerce.number().int().positive(),
+        }),
+        responses: {
+          200: lessonScheduleDraftSchema.nullable(),
+          403: errorSchemas.forbidden,
+        },
+      },
+      save: {
+        method: "PUT" as const,
+        path: "/api/lesson-schedules/draft" as const,
+        input: z.object({
+          classSectionId: z.coerce.number().int().positive(),
+          academicTermId: z.coerce.number().int().positive(),
+          period: classPeriodSchema,
+          draftPayload: lessonScheduleDraftPayloadSchema,
+        }),
+        responses: {
+          200: lessonScheduleDraftSchema,
+          400: errorSchemas.validation,
+          403: errorSchemas.forbidden,
+        },
+      },
+      remove: {
+        method: "DELETE" as const,
+        path: "/api/lesson-schedules/draft" as const,
+        input: z.object({
+          classSectionId: z.coerce.number().int().positive(),
+          academicTermId: z.coerce.number().int().positive(),
+        }),
+        responses: {
+          200: z.object({ message: z.string() }),
+          403: errorSchemas.forbidden,
+        },
       },
     },
   },

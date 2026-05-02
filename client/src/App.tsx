@@ -19,6 +19,7 @@ const ResetPasswordCancel = lazy(() => import("@/pages/reset-password-cancel"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Courses = lazy(() => import("@/pages/courses"));
 const CourseDetail = lazy(() => import("@/pages/course-detail"));
+const LessonAssignment = lazy(() => import("@/pages/lesson-assignment"));
 const Students = lazy(() => import("@/pages/students"));
 const Announcements = lazy(() => import("@/pages/announcements"));
 const Finances = lazy(() => import("@/pages/finances"));
@@ -286,6 +287,10 @@ function Router() {
           <Route path="/" component={DashboardRoute} />
           <Route path="/courses" component={() => <ProtectedRoute component={Courses} />} />
           <Route path="/courses/:id" component={() => <ProtectedRoute component={CourseDetail} />} />
+          <Route
+            path="/lesson-assignment"
+            component={() => <ProtectedRoute component={LessonAssignment} allowedRoles={["admin"]} />}
+          />
           <Route
             path="/students"
             component={() => <ProtectedRoute component={Students} allowedRoles={["admin", "teacher"]} />}

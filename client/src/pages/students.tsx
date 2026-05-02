@@ -45,6 +45,23 @@ function enrollmentStatusBadge(status: string) {
   return { label: status, className: "text-muted-foreground bg-slate-50 border-border" };
 }
 
+function periodLabel(period: string) {
+  if (period === "matutino") return "Matutino";
+  if (period === "vespertino") return "Vespertino";
+  return "Noturno";
+}
+
+function sectionLabel(section: {
+  code: string;
+  name: string;
+  period: string;
+  currentStageNumber: number;
+  coordinatorTeacherName?: string;
+}) {
+  const coordinator = section.coordinatorTeacherName ? ` - Coord.: ${section.coordinatorTeacherName}` : "";
+  return `${section.code} - ${section.name} - ${periodLabel(section.period)} - ${section.currentStageNumber}ª etapa${coordinator}`;
+}
+
 export default function Students() {
   const { user } = useAuth();
   const { data: scope, isLoading: scopeLoading } = useStudentScope();
@@ -222,7 +239,7 @@ export default function Students() {
                     <SelectContent>
                       {sectionsForEnrollment.map((section) => (
                         <SelectItem key={section.id} value={String(section.id)}>
-                          {section.code} - {section.name}
+                          {sectionLabel(section)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -289,7 +306,7 @@ export default function Students() {
                 <SelectContent>
                   {sectionsBySelectedCourse.map((section) => (
                     <SelectItem key={section.id} value={String(section.id)}>
-                      {section.code} - {section.name}
+                      {sectionLabel(section)}
                     </SelectItem>
                   ))}
                 </SelectContent>

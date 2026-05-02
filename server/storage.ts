@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   academicTerms,
   announcementCourses,
@@ -7,6 +7,7 @@ import {
   approvedSubjectRecords,
   blockedDevices,
   classSectionTeachers,
+  classSectionSubjectTeachers,
   classSections,
   courseMaterials,
   courseSubjects,
@@ -18,7 +19,9 @@ import {
   subjects,
   userPinnedMaterials,
   users,
+  type AcademicTerm,
   type AnnouncementResponse,
+  type ClassSection,
   type CourseMaterial,
   type CourseMaterialResponse,
   type Course,
@@ -28,6 +31,8 @@ import {
   type InsertAnnouncement,
   type InsertCourseMaterial,
   type InsertCourse,
+  type InsertClassSection,
+  type InsertClassSectionSubjectTeacher,
   type InsertEnrollment,
   type InsertNotification,
   type InsertPasswordResetRequest,
@@ -37,7 +42,7 @@ import {
   type PasswordResetRequest,
   type StudentListResponse,
   type StudentScopeResponse,
-  type Subject,
+  type SubjectResponse,
   type User,
 } from "@shared/schema";
 import { db } from "./db";
@@ -88,6 +93,7 @@ function uniqueNumbers(values: Array<number | null | undefined>) {
 }
 
 const activeAcademicStatuses: Array<Enrollment["status"]> = ["active", "locked"];
+type ClassPeriod = ClassSection["period"];
 
 export interface CreateAnnouncementInput extends InsertAnnouncement {
   courseIds?: number[];
@@ -119,14 +125,17 @@ export interface IStorage {
   getCourse(id: number): Promise<CourseResponse | undefined>;
   createCourse(course: InsertCourse): Promise<Course>;
   updateCourse(id: number, updates: Partial<InsertCourse>): Promise<Course>;
+  getOrCreateActiveAcademicTerm(): Promise<AcademicTerm>;
+  createClassSection(section: InsertClassSection): Promise<ClassSection>;
+  assignClassSectionSubjectTeachers(assignments: InsertClassSectionSubjectTeacher[]): Promise<void>;
   getTeacherCourseIds(teacherId: number): Promise<number[]>;
   getTeacherClassSectionIds(teacherId: number): Promise<number[]>;
   getClassSectionsForUser(user: User, courseId?: number): Promise<StudentScopeResponse["classSections"]>;
 
-  getSubjects(): Promise<Subject[]>;
-  createSubject(subject: InsertSubject): Promise<Subject>;
-  getCourseSubjects(courseId: number): Promise<Subject[]>;
-  setCourseSubjects(courseId: number, subjectIds: number[]): Promise<void>;
+  getSubjects(): Promise<SubjectResponse[]>;
+  createSubject(subject: InsertSubject): Promise<SubjectResponse>;
+  getCourseSubjects(courseId: number, classSectionId?: number, currentStageNumber?: number): Promise<SubjectResponse[]>;
+  setCourseSubjects(courseId: number, subjectIds: number[], stageNumbers?: Record<string | number, number>): Promise<void>;
 
   getEnrollments(courseId?: number, studentId?: number, classSectionId?: number): Promise<EnrollmentResponse[]>;
   getEnrollmentById(id: number): Promise<Enrollment | undefined>;
@@ -185,7 +194,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  private async getOrCreateActiveAcademicTerm() {
+  async getOrCreateActiveAcademicTerm(): Promise<AcademicTerm> {
     const [activeTerm] = await db
       .select()
       .from(academicTerms)
@@ -221,23 +230,7 @@ export class DatabaseStorage implements IStorage {
     return `${courseCode}-${normalizedTerm}-T1`;
   }
 
-  private async ensureCourseTeacherOnSections(courseId: number, teacherId?: number | null) {
-    if (!teacherId) return;
-
-    const sectionRows = await db
-      .select({ id: classSections.id })
-      .from(classSections)
-      .where(eq(classSections.courseId, courseId));
-
-    if (sectionRows.length === 0) return;
-
-    await db
-      .insert(classSectionTeachers)
-      .values(sectionRows.map((row) => ({ classSectionId: row.id, teacherId })))
-      .onConflictDoNothing();
-  }
-
-  private async ensureDefaultClassSection(course: Course) {
+  private async ensureDefaultClassSection(course: Course, classPeriod: ClassPeriod = "noturno") {
     const activeTerm = await this.getOrCreateActiveAcademicTerm();
     const [existing] = await db
       .select({ id: classSections.id })
@@ -245,7 +238,6 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(classSections.courseId, course.id), eq(classSections.academicTermId, activeTerm.id)));
 
     if (existing) {
-      await this.ensureCourseTeacherOnSections(course.id, course.teacherId);
       return;
     }
 
@@ -256,61 +248,58 @@ export class DatabaseStorage implements IStorage {
         academicTermId: activeTerm.id,
         code: this.buildDefaultSectionCode(course.code, activeTerm.code),
         name: "Turma 1",
+        currentStageNumber: 1,
         room: null,
-        scheduleSummary: course.schedule,
+        period: classPeriod,
       })
       .returning();
-
-    if (course.teacherId) {
-      await db
-        .insert(classSectionTeachers)
-        .values({ classSectionId: section.id, teacherId: course.teacherId })
-        .onConflictDoNothing();
-    }
   }
 
   async getTeacherCourseIds(teacherId: number): Promise<number[]> {
-    const directCourses = await db
-      .select({ id: courses.id })
-      .from(courses)
-      .where(eq(courses.teacherId, teacherId));
+    const coordinatedCourses = await db
+      .select({ courseId: classSections.courseId })
+      .from(classSections)
+      .where(eq(classSections.coordinatorTeacherId, teacherId));
 
-    const coursesBySection = await db
+    const legacyCoursesBySection = await db
       .select({ courseId: classSections.courseId })
       .from(classSectionTeachers)
       .innerJoin(classSections, eq(classSections.id, classSectionTeachers.classSectionId))
       .where(eq(classSectionTeachers.teacherId, teacherId));
 
+    const coursesBySubject = await db
+      .select({ courseId: classSections.courseId })
+      .from(classSectionSubjectTeachers)
+      .innerJoin(classSections, eq(classSections.id, classSectionSubjectTeachers.classSectionId))
+      .where(eq(classSectionSubjectTeachers.teacherId, teacherId));
+
     return uniqueNumbers([
-      ...directCourses.map((row) => row.id),
-      ...coursesBySection.map((row) => row.courseId),
+      ...coordinatedCourses.map((row) => row.courseId),
+      ...legacyCoursesBySection.map((row) => row.courseId),
+      ...coursesBySubject.map((row) => row.courseId),
     ]);
   }
 
   async getTeacherClassSectionIds(teacherId: number): Promise<number[]> {
-    const directCourses = await db
-      .select({ id: courses.id })
-      .from(courses)
-      .where(eq(courses.teacherId, teacherId));
-
-    const directCourseIds = directCourses.map((row) => row.id);
-
-    const sectionsByDirectCourses =
-      directCourseIds.length > 0
-        ? await db
-            .select({ id: classSections.id })
-            .from(classSections)
-            .where(inArray(classSections.courseId, directCourseIds))
-        : [];
+    const coordinatedSections = await db
+      .select({ id: classSections.id })
+      .from(classSections)
+      .where(eq(classSections.coordinatorTeacherId, teacherId));
 
     const assignedSections = await db
       .select({ id: classSectionTeachers.classSectionId })
       .from(classSectionTeachers)
       .where(eq(classSectionTeachers.teacherId, teacherId));
 
+    const subjectSections = await db
+      .select({ id: classSectionSubjectTeachers.classSectionId })
+      .from(classSectionSubjectTeachers)
+      .where(eq(classSectionSubjectTeachers.teacherId, teacherId));
+
     return uniqueNumbers([
-      ...sectionsByDirectCourses.map((row) => row.id),
+      ...coordinatedSections.map((row) => row.id),
       ...assignedSections.map((row) => row.id),
+      ...subjectSections.map((row) => row.id),
     ]);
   }
 
@@ -484,18 +473,14 @@ export class DatabaseStorage implements IStorage {
         code: courses.code,
         name: courses.name,
         description: courses.description,
-        teacherId: courses.teacherId,
-        schedule: courses.schedule,
         createdAt: courses.createdAt,
-        teacherName: users.name,
+        classSectionCount: count(classSections.id),
       })
       .from(courses)
-      .leftJoin(users, eq(users.id, courses.teacherId));
+      .leftJoin(classSections, eq(classSections.courseId, courses.id))
+      .groupBy(courses.id);
 
-    return rows.map((row) => ({
-      ...row,
-      teacherName: row.teacherName ?? undefined,
-    }));
+    return rows;
   }
 
   async getCoursesForUser(user: User): Promise<CourseResponse[]> {
@@ -516,21 +501,19 @@ export class DatabaseStorage implements IStorage {
         code: courses.code,
         name: courses.name,
         description: courses.description,
-        teacherId: courses.teacherId,
-        schedule: courses.schedule,
         createdAt: courses.createdAt,
-        teacherName: users.name,
+        classSectionCount: count(classSections.id),
       })
       .from(courses)
-      .leftJoin(users, eq(users.id, courses.teacherId))
-      .where(eq(courses.id, id));
+      .leftJoin(classSections, eq(classSections.courseId, courses.id))
+      .where(eq(courses.id, id))
+      .groupBy(courses.id);
 
     if (!course) return undefined;
 
     const subjectsByCourse = await this.getCourseSubjects(id);
     return {
       ...course,
-      teacherName: course.teacherName ?? undefined,
       subjects: subjectsByCourse,
     };
   }
@@ -554,16 +537,28 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
-    await this.ensureDefaultClassSection(course);
     return course;
   }
 
   async updateCourse(id: number, updates: Partial<InsertCourse>): Promise<Course> {
     const [course] = await db.update(courses).set(updates).where(eq(courses.id, id)).returning();
-    if (course) {
-      await this.ensureCourseTeacherOnSections(course.id, updates.teacherId ?? course.teacherId);
-    }
     return course;
+  }
+
+  async createClassSection(insertSection: InsertClassSection): Promise<ClassSection> {
+    const [section] = await db.insert(classSections).values(insertSection).returning();
+    if (section.coordinatorTeacherId) {
+      await db
+        .insert(classSectionTeachers)
+        .values({ classSectionId: section.id, teacherId: section.coordinatorTeacherId })
+        .onConflictDoNothing();
+    }
+    return section;
+  }
+
+  async assignClassSectionSubjectTeachers(assignments: InsertClassSectionSubjectTeacher[]): Promise<void> {
+    if (assignments.length === 0) return;
+    await db.insert(classSectionSubjectTeachers).values(assignments).onConflictDoNothing();
   }
 
   async getClassSectionsForUser(user: User, courseId?: number): Promise<StudentScopeResponse["classSections"]> {
@@ -575,23 +570,33 @@ export class DatabaseStorage implements IStorage {
         courseId: classSections.courseId,
         academicTermId: classSections.academicTermId,
         academicTermCode: academicTerms.code,
+        period: classSections.period,
+        currentStageNumber: classSections.currentStageNumber,
+        coordinatorTeacherId: classSections.coordinatorTeacherId,
+        coordinatorTeacherName: users.name,
       })
       .from(classSections)
       .innerJoin(academicTerms, eq(academicTerms.id, classSections.academicTermId))
+      .leftJoin(users, eq(users.id, classSections.coordinatorTeacherId))
       .where(courseId ? eq(classSections.courseId, courseId) : undefined)
       .orderBy(desc(academicTerms.startsAt), classSections.name);
 
-    if (user.role === "admin") return rows;
+    const normalizedRows = rows.map((row) => ({
+      ...row,
+      coordinatorTeacherName: row.coordinatorTeacherName ?? undefined,
+    }));
+
+    if (user.role === "admin") return normalizedRows;
 
     const allowedCourseIds = new Set(await this.getAllowedCourseIdsForUser(user));
     const allowedSectionIds = new Set(await this.getAllowedClassSectionIdsForUser(user));
 
-    return rows.filter(
+    return normalizedRows.filter(
       (row) => allowedCourseIds.has(row.courseId) && (allowedSectionIds.size === 0 || allowedSectionIds.has(row.id)),
     );
   }
 
-  async getSubjects(): Promise<Subject[]> {
+  async getSubjects(): Promise<SubjectResponse[]> {
     return db.select().from(subjects).orderBy(subjects.name);
   }
 
@@ -605,7 +610,7 @@ export class DatabaseStorage implements IStorage {
     return `MAT-${Date.now().toString().slice(-6)}`;
   }
 
-  async createSubject(insertSubject: InsertSubject): Promise<Subject> {
+  async createSubject(insertSubject: InsertSubject): Promise<SubjectResponse> {
     const [subject] = await db
       .insert(subjects)
       .values({
@@ -617,7 +622,11 @@ export class DatabaseStorage implements IStorage {
     return subject;
   }
 
-  async getCourseSubjects(courseId: number): Promise<Subject[]> {
+  async getCourseSubjects(
+    courseId: number,
+    classSectionId?: number,
+    currentStageNumber?: number,
+  ): Promise<SubjectResponse[]> {
     const rows = await db
       .select({
         id: subjects.id,
@@ -626,16 +635,51 @@ export class DatabaseStorage implements IStorage {
         description: subjects.description,
         workloadHours: subjects.workloadHours,
         createdAt: subjects.createdAt,
+        stageNumber: courseSubjects.stageNumber,
       })
       .from(courseSubjects)
       .innerJoin(subjects, eq(subjects.id, courseSubjects.subjectId))
       .where(eq(courseSubjects.courseId, courseId))
-      .orderBy(subjects.name);
+      .orderBy(courseSubjects.stageNumber, subjects.name);
 
-    return rows;
+    if (!classSectionId) return rows;
+
+    const teacherRows = await db
+      .select({
+        subjectId: classSectionSubjectTeachers.subjectId,
+        teacherName: users.name,
+      })
+      .from(classSectionSubjectTeachers)
+      .innerJoin(users, eq(users.id, classSectionSubjectTeachers.teacherId))
+      .where(eq(classSectionSubjectTeachers.classSectionId, classSectionId))
+      .orderBy(users.name);
+
+    const teachersBySubject = new Map<number, string[]>();
+    for (const row of teacherRows) {
+      const current = teachersBySubject.get(row.subjectId) ?? [];
+      current.push(row.teacherName);
+      teachersBySubject.set(row.subjectId, current);
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      teacherNames: teachersBySubject.get(row.id) ?? [],
+      academicStatus:
+        typeof currentStageNumber === "number"
+          ? row.stageNumber < currentStageNumber
+            ? "Aprovado"
+            : row.stageNumber === currentStageNumber
+              ? "Cursando"
+              : "A cursar"
+          : undefined,
+    }));
   }
 
-  async setCourseSubjects(courseId: number, subjectIds: number[]): Promise<void> {
+  async setCourseSubjects(
+    courseId: number,
+    subjectIds: number[],
+    stageNumbers: Record<string | number, number> = {},
+  ): Promise<void> {
     const deduped = Array.from(new Set(subjectIds));
 
     await db.delete(courseSubjects).where(eq(courseSubjects.courseId, courseId));
@@ -646,6 +690,7 @@ export class DatabaseStorage implements IStorage {
       deduped.map((subjectId) => ({
         courseId,
         subjectId,
+        stageNumber: stageNumbers[subjectId] ?? 1,
         isRequired: true,
       })),
     );
@@ -677,6 +722,8 @@ export class DatabaseStorage implements IStorage {
         classSectionCode: classSections.code,
         classSectionName: classSections.name,
         academicTermCode: academicTerms.code,
+        classSectionCurrentStageNumber: classSections.currentStageNumber,
+        classSectionPeriod: classSections.period,
       })
       .from(enrollments)
       .innerJoin(users, eq(users.id, enrollments.studentId))
@@ -691,6 +738,8 @@ export class DatabaseStorage implements IStorage {
       classSectionCode: row.classSectionCode ?? undefined,
       classSectionName: row.classSectionName ?? undefined,
       academicTermCode: row.academicTermCode ?? undefined,
+      classSectionCurrentStageNumber: row.classSectionCurrentStageNumber ?? undefined,
+      classSectionPeriod: row.classSectionPeriod ?? undefined,
     }));
   }
 
@@ -928,6 +977,8 @@ export class DatabaseStorage implements IStorage {
         classSectionName: classSections.name,
         academicTermId: enrollments.academicTermId,
         academicTermCode: academicTerms.code,
+        classSectionCurrentStageNumber: classSections.currentStageNumber,
+        classSectionPeriod: classSections.period,
       })
       .from(enrollments)
       .innerJoin(users, eq(users.id, enrollments.studentId))
@@ -942,6 +993,8 @@ export class DatabaseStorage implements IStorage {
       classSectionCode: row.classSectionCode ?? undefined,
       classSectionName: row.classSectionName ?? undefined,
       academicTermCode: row.academicTermCode ?? undefined,
+      classSectionCurrentStageNumber: row.classSectionCurrentStageNumber ?? undefined,
+      classSectionPeriod: row.classSectionPeriod ?? undefined,
     }));
   }
 
@@ -1123,13 +1176,21 @@ export class DatabaseStorage implements IStorage {
 
       for (const row of enrolledStudents) recipients.add(row.userId);
 
-      const courseTeachers = await db
-        .select({ teacherId: courses.teacherId })
-        .from(courses)
-        .where(and(inArray(courses.id, input.courseIds), sql`${courses.teacherId} IS NOT NULL`));
+      const courseSectionTeachers = await db
+        .select({
+          coordinatorTeacherId: classSections.coordinatorTeacherId,
+          subjectTeacherId: classSectionSubjectTeachers.teacherId,
+        })
+        .from(classSections)
+        .leftJoin(
+          classSectionSubjectTeachers,
+          eq(classSectionSubjectTeachers.classSectionId, classSections.id),
+        )
+        .where(inArray(classSections.courseId, input.courseIds));
 
-      for (const row of courseTeachers) {
-        if (row.teacherId) recipients.add(row.teacherId);
+      for (const row of courseSectionTeachers) {
+        if (row.coordinatorTeacherId) recipients.add(row.coordinatorTeacherId);
+        if (row.subjectTeacherId) recipients.add(row.subjectTeacherId);
       }
     }
 
@@ -1153,19 +1214,21 @@ export class DatabaseStorage implements IStorage {
 
       for (const row of sectionTeachers) recipients.add(row.teacherId);
 
-      const courseTeachersBySection = await db
-        .select({ teacherId: courses.teacherId })
+      const sectionSubjectTeachers = await db
+        .select({
+          coordinatorTeacherId: classSections.coordinatorTeacherId,
+          subjectTeacherId: classSectionSubjectTeachers.teacherId,
+        })
         .from(classSections)
-        .innerJoin(courses, eq(courses.id, classSections.courseId))
-        .where(
-          and(
-            inArray(classSections.id, input.classSectionIds),
-            sql`${courses.teacherId} IS NOT NULL`,
-          ),
-        );
+        .leftJoin(
+          classSectionSubjectTeachers,
+          eq(classSectionSubjectTeachers.classSectionId, classSections.id),
+        )
+        .where(inArray(classSections.id, input.classSectionIds));
 
-      for (const row of courseTeachersBySection) {
-        if (row.teacherId) recipients.add(row.teacherId);
+      for (const row of sectionSubjectTeachers) {
+        if (row.coordinatorTeacherId) recipients.add(row.coordinatorTeacherId);
+        if (row.subjectTeacherId) recipients.add(row.subjectTeacherId);
       }
     }
 

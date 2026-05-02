@@ -29,13 +29,13 @@ function getAuthUser(req: Request) {
 }
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.isAuthenticated()) return res.sendStatus(401);
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Nao autenticado" });
   return next();
 }
 
 function requireRoles(...roles: Array<User["role"]>) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Nao autenticado" });
 
     const user = getAuthUser(req);
     if (!roles.includes(user.role)) {
@@ -176,7 +176,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const user = getAuthUser(req);
 
       const fullUser = await storage.getUser(user.id);
-      if (!fullUser) return res.sendStatus(401);
+      if (!fullUser) return res.status(401).json({ message: "Nao autenticado" });
 
       const currentMatches = await comparePasswords(input.currentPassword, fullUser.password);
       if (!currentMatches) {
@@ -505,8 +505,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const course = await storage.createCourse({
         name: input.name,
         description: input.description,
-        schedule: input.schedule,
-        teacherId: input.teacherId,
       });
 
       return res.status(201).json(course);
@@ -559,7 +557,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
     }
 
-    const subjects = await storage.getCourseSubjects(courseId);
+    const classSectionId = parseOptionalPositiveInt(req.query.classSectionId);
+    let currentStageNumber: number | undefined;
+    if (classSectionId) {
+      const sections = await storage.getClassSectionsForUser(user, courseId);
+      const section = sections.find((entry) => entry.id === classSectionId);
+      if (!section) return res.status(403).json({ message: "Acesso negado a turma solicitada" });
+      currentStageNumber = section.currentStageNumber;
+    }
+
+    const subjects = await storage.getCourseSubjects(courseId, classSectionId, currentStageNumber);
     return res.json(subjects);
   });
 
@@ -571,7 +578,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const input = api.courses.subjects.update.input.parse(req.body);
-      await storage.setCourseSubjects(courseId, input.subjectIds);
+      await storage.setCourseSubjects(courseId, input.subjectIds, input.stageNumbers);
       return res.json({ message: "Grade curricular atualizada" });
     } catch (error) {
       return handleRouteError(res, error, "Erro ao atualizar grade");
@@ -788,11 +795,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post(
-    api.materials.upload.path,
-    requireRoles("teacher"),
-    materialUpload.single("file"),
-    async (req, res) => {
+  app.post(api.materials.upload.path, requireRoles("teacher"), (req, res) => {
+    materialUpload.single("file")(req, res, async (uploadError) => {
+      if (uploadError instanceof multer.MulterError) {
+        if (uploadError.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "Arquivo excede o tamanho maximo permitido" });
+        }
+        return res.status(400).json({ message: "Falha no upload do arquivo" });
+      }
+
+      if (uploadError) {
+        return handleRouteError(res, uploadError, "Erro ao enviar material");
+      }
+
       try {
         const user = getAuthUser(req);
         const input = api.materials.upload.input.parse(req.body);
@@ -853,17 +868,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         return res.status(201).json(response);
       } catch (error) {
-        if (error instanceof multer.MulterError) {
-          if (error.code === "LIMIT_FILE_SIZE") {
-            return res.status(400).json({ message: "Arquivo excede o tamanho maximo permitido" });
-          }
-          return res.status(400).json({ message: "Falha no upload do arquivo" });
-        }
-
         return handleRouteError(res, error, "Erro ao enviar material");
       }
-    },
-  );
+    });
+  });
 
   app.get(api.materials.download.path, requireRoles("student", "teacher"), async (req, res) => {
     try {
@@ -1001,13 +1009,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     if (user.role === "teacher") {
-      const [allCourses, allEnrollments, announcements] = await Promise.all([
-        storage.getCourses(),
+      const [teacherCourses, allEnrollments, announcements] = await Promise.all([
+        storage.getCoursesForUser(user),
         storage.getEnrollments(),
         storage.getAnnouncementsForUser(user),
       ]);
-
-      const teacherCourses = allCourses.filter((course) => course.teacherId === user.id);
       const teacherCourseIds = new Set(teacherCourses.map((course) => course.id));
 
       let gradeSum = 0;
@@ -1029,7 +1035,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.json({
         role: user.role,
         cards: [
-          { label: "Aulas no horario", value: String(teacherCourses.length) },
+          { label: "Turmas vinculadas", value: String(teacherCourses.length) },
           { label: "Alunos acompanhados", value: String(teacherEnrollmentCount) },
           { label: "Media de notas (0-10)", value: String(avgGrade) },
           { label: "Comunicados", value: String(announcements.length) },
@@ -1053,7 +1059,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({
       role: user.role,
       cards: [
-        { label: "Horarios cadastrados", value: String(studentEnrollments.length) },
+        { label: "Turmas cadastradas", value: String(studentEnrollments.length) },
         { label: "Faltas medias", value: String(avgAbsences) },
         { label: "Melhor nota (0-10)", value: String(topGrade) },
         { label: "Comunicados", value: String(announcements.length) },

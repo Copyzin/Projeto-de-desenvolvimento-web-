@@ -11,6 +11,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
+function periodLabel(period: string) {
+  if (period === "matutino") return "Matutino";
+  if (period === "vespertino") return "Vespertino";
+  return "Noturno";
+}
+
+function sectionLabel(section: {
+  code: string;
+  name: string;
+  period: string;
+  currentStageNumber: number;
+  coordinatorTeacherName?: string;
+}) {
+  const coordinator = section.coordinatorTeacherName ? ` - Coord.: ${section.coordinatorTeacherName}` : "";
+  return `${section.code} - ${section.name} - ${periodLabel(section.period)} - ${section.currentStageNumber}ª etapa${coordinator}`;
+}
+
 export default function Downloads() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -211,7 +228,7 @@ export default function Downloads() {
                 <option value="">Selecione</option>
                 {availableSections.map((section) => (
                   <option key={section.id} value={section.id}>
-                    {section.code} - {section.name}
+                    {sectionLabel(section)}
                   </option>
                 ))}
               </select>

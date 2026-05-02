@@ -41,8 +41,6 @@ export const courses = pgTable("courses", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   description: text("description"),
-  teacherId: integer("teacher_id").references(() => users.id),
-  schedule: text("schedule"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -64,7 +62,7 @@ export const courseSubjects = pgTable(
     subjectId: integer("subject_id")
       .notNull()
       .references(() => subjects.id, { onDelete: "cascade" }),
-    semester: text("semester"),
+    stageNumber: integer("stage_number").notNull().default(1),
     isRequired: boolean("is_required").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -93,8 +91,14 @@ export const classSections = pgTable("class_sections", {
   academicTermId: integer("academic_term_id")
     .notNull()
     .references(() => academicTerms.id, { onDelete: "cascade" }),
+  coordinatorTeacherId: integer("coordinator_teacher_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  currentStageNumber: integer("current_stage_number").notNull().default(1),
   room: text("room"),
-  scheduleSummary: text("schedule_summary"),
+  period: text("period", { enum: ["matutino", "vespertino", "noturno"] })
+    .notNull()
+    .default("noturno"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -111,6 +115,25 @@ export const classSectionTeachers = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.classSectionId, table.teacherId] }),
+  }),
+);
+
+export const classSectionSubjectTeachers = pgTable(
+  "class_section_subject_teachers",
+  {
+    classSectionId: integer("class_section_id")
+      .notNull()
+      .references(() => classSections.id, { onDelete: "cascade" }),
+    subjectId: integer("subject_id")
+      .notNull()
+      .references(() => subjects.id, { onDelete: "cascade" }),
+    teacherId: integer("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.classSectionId, table.subjectId, table.teacherId] }),
   }),
 );
 
@@ -309,8 +332,8 @@ export const blockedDevices = pgTable("blocked_devices", {
 });
 
 export const usersRelations = relations(users, ({ many }) => ({
-  teachingCourses: many(courses, { relationName: "teacherCourses" }),
   classSectionAssignments: many(classSectionTeachers),
+  subjectAssignments: many(classSectionSubjectTeachers),
   enrollments: many(enrollments),
   announcements: many(announcements),
   enrollmentStatusChanges: many(enrollmentStatusHistory),
@@ -322,12 +345,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   passwordResets: many(passwordResetRequests),
 }));
 
-export const coursesRelations = relations(courses, ({ one, many }) => ({
-  teacher: one(users, {
-    fields: [courses.teacherId],
-    references: [users.id],
-    relationName: "teacherCourses",
-  }),
+export const coursesRelations = relations(courses, ({ many }) => ({
   enrollments: many(enrollments),
   classSections: many(classSections),
   announcementLinks: many(announcementCourses),
@@ -366,7 +384,12 @@ export const classSectionsRelations = relations(classSections, ({ one, many }) =
     fields: [classSections.academicTermId],
     references: [academicTerms.id],
   }),
+  coordinatorTeacher: one(users, {
+    fields: [classSections.coordinatorTeacherId],
+    references: [users.id],
+  }),
   teachers: many(classSectionTeachers),
+  subjectTeachers: many(classSectionSubjectTeachers),
   enrollments: many(enrollments),
   materials: many(courseMaterials),
 }));
@@ -381,6 +404,24 @@ export const classSectionTeachersRelations = relations(classSectionTeachers, ({ 
     references: [users.id],
   }),
 }));
+
+export const classSectionSubjectTeachersRelations = relations(
+  classSectionSubjectTeachers,
+  ({ one }) => ({
+    classSection: one(classSections, {
+      fields: [classSectionSubjectTeachers.classSectionId],
+      references: [classSections.id],
+    }),
+    subject: one(subjects, {
+      fields: [classSectionSubjectTeachers.subjectId],
+      references: [subjects.id],
+    }),
+    teacher: one(users, {
+      fields: [classSectionSubjectTeachers.teacherId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const enrollmentsRelations = relations(enrollments, ({ one, many }) => ({
   student: one(users, {
@@ -544,6 +585,12 @@ export const insertClassSectionTeacherSchema = createInsertSchema(classSectionTe
   createdAt: true,
 });
 
+export const insertClassSectionSubjectTeacherSchema = createInsertSchema(
+  classSectionSubjectTeachers,
+).omit({
+  createdAt: true,
+});
+
 export const insertEnrollmentSchema = createInsertSchema(enrollments).omit({
   id: true,
   enrolledAt: true,
@@ -605,6 +652,7 @@ export type CourseSubject = typeof courseSubjects.$inferSelect;
 export type AcademicTerm = typeof academicTerms.$inferSelect;
 export type ClassSection = typeof classSections.$inferSelect;
 export type ClassSectionTeacher = typeof classSectionTeachers.$inferSelect;
+export type ClassSectionSubjectTeacher = typeof classSectionSubjectTeachers.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type Announcement = typeof announcements.$inferSelect;
 export type AnnouncementTarget = typeof announcementTargets.$inferSelect;
@@ -624,6 +672,9 @@ export type InsertCourseSubject = z.infer<typeof insertCourseSubjectSchema>;
 export type InsertAcademicTerm = z.infer<typeof insertAcademicTermSchema>;
 export type InsertClassSection = z.infer<typeof insertClassSectionSchema>;
 export type InsertClassSectionTeacher = z.infer<typeof insertClassSectionTeacherSchema>;
+export type InsertClassSectionSubjectTeacher = z.infer<
+  typeof insertClassSectionSubjectTeacherSchema
+>;
 export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
 export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
 export type InsertAnnouncementCourse = z.infer<typeof insertAnnouncementCourseSchema>;
@@ -639,8 +690,14 @@ export type InsertBlockedDevice = z.infer<typeof insertBlockedDeviceSchema>;
 export type UserResponse = Omit<User, "password">;
 
 export type CourseResponse = Course & {
-  teacherName?: string;
-  subjects?: Subject[];
+  classSectionCount?: number;
+  subjects?: SubjectResponse[];
+};
+
+export type SubjectResponse = Subject & {
+  stageNumber?: number;
+  teacherNames?: string[];
+  academicStatus?: "Aprovado" | "Cursando" | "A cursar";
 };
 
 export type EnrollmentResponse = Enrollment & {
@@ -651,6 +708,9 @@ export type EnrollmentResponse = Enrollment & {
   classSectionCode?: string;
   classSectionName?: string;
   academicTermCode?: string;
+  classSectionCurrentStageNumber?: number;
+  classSectionPeriod?: ClassSection["period"];
+  coordinatorTeacherName?: string;
 };
 
 export type AnnouncementResponse = Announcement & {
@@ -693,5 +753,9 @@ export type StudentScopeResponse = {
     courseId: number;
     academicTermId: number;
     academicTermCode: string;
+    period: ClassSection["period"];
+    currentStageNumber: number;
+    coordinatorTeacherId?: number | null;
+    coordinatorTeacherName?: string;
   }>;
 };

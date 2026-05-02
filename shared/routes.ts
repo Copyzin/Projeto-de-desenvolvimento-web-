@@ -3,6 +3,7 @@ import { z } from "zod";
 const roleSchema = z.enum(["admin", "teacher", "student"]);
 const enrollmentStatusSchema = z.enum(["active", "completed", "dropped", "locked", "canceled"]);
 const notificationTypeSchema = z.enum(["announcement", "finance", "academic", "system"]);
+const classPeriodSchema = z.enum(["matutino", "vespertino", "noturno"]);
 const decimalGradeSchema = z
   .coerce
   .number()
@@ -31,9 +32,7 @@ export const courseSchema = z.object({
   code: z.string(),
   name: z.string(),
   description: z.string().nullable().optional(),
-  teacherId: z.number().nullable().optional(),
-  teacherName: z.string().optional(),
-  schedule: z.string().nullable().optional(),
+  classSectionCount: z.number().optional(),
   createdAt: z.string().or(z.date()).optional(),
 });
 
@@ -43,6 +42,9 @@ export const subjectSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   workloadHours: z.number(),
+  stageNumber: z.number().optional(),
+  teacherNames: z.array(z.string()).optional(),
+  academicStatus: z.enum(["Aprovado", "Cursando", "A cursar"]).optional(),
   createdAt: z.string().or(z.date()).optional(),
 });
 
@@ -53,6 +55,10 @@ export const classSectionSchema = z.object({
   courseId: z.number(),
   academicTermId: z.number(),
   academicTermCode: z.string(),
+  period: classPeriodSchema,
+  currentStageNumber: z.number(),
+  coordinatorTeacherId: z.number().nullable().optional(),
+  coordinatorTeacherName: z.string().optional(),
 });
 
 export const enrollmentSchema = z.object({
@@ -65,6 +71,9 @@ export const enrollmentSchema = z.object({
   classSectionCode: z.string().optional(),
   classSectionName: z.string().optional(),
   academicTermCode: z.string().optional(),
+  classSectionCurrentStageNumber: z.number().optional(),
+  classSectionPeriod: classPeriodSchema.optional(),
+  coordinatorTeacherName: z.string().optional(),
   enrolledAt: z.string().or(z.date()).optional(),
   createdAt: z.string().or(z.date()).optional(),
   grade: z.number().nullable().optional(),
@@ -362,8 +371,6 @@ export const api = {
       input: z.object({
         name: z.string().min(2, "Nome do curso obrigatorio"),
         description: z.string().optional(),
-        schedule: z.string().optional(),
-        teacherId: z.coerce.number().optional(),
       }),
       responses: {
         201: courseSchema,
@@ -377,8 +384,6 @@ export const api = {
         .object({
           name: z.string().min(2).optional(),
           description: z.string().nullable().optional(),
-          schedule: z.string().nullable().optional(),
-          teacherId: z.coerce.number().nullable().optional(),
         })
         .partial(),
       responses: {
@@ -399,6 +404,7 @@ export const api = {
         path: "/api/courses/:id/subjects" as const,
         input: z.object({
           subjectIds: z.array(z.coerce.number().int().positive()),
+          stageNumbers: z.record(z.coerce.number().int().positive()).optional(),
         }),
         responses: {
           200: z.object({ message: z.string() }),

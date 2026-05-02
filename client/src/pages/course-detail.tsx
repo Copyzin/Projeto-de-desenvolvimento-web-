@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import { Calendar, Clock, Save, Search, User, Users } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,8 +40,9 @@ export default function CourseDetail() {
   const { user } = useAuth();
   const { data: course, isLoading: courseLoading } = useCourse(courseId);
   const { data: enrollments, isLoading: enrollmentsLoading } = useEnrollments({ courseId });
+  const classSectionContext = enrollments?.[0]?.classSectionId ?? null;
   const { data: allSubjects } = useSubjects();
-  const { data: selectedSubjects } = useCourseSubjects(courseId);
+  const { data: selectedSubjects } = useCourseSubjects(courseId, classSectionContext);
   const updateCourseSubjects = useUpdateCourseSubjects(courseId);
   const updateEnrollment = useUpdateEnrollment();
   const createSubject = useCreateSubject();
@@ -85,8 +86,14 @@ export default function CourseDetail() {
   }, [enrollmentRows, studentSearch]);
 
   const curriculumRows = useMemo(() => {
+    const selectedById = new Map((selectedSubjects ?? []).map((subject) => [subject.id, subject]));
     const sourceSubjects = canEditCurriculum
-      ? allSubjects ?? []
+      ? (allSubjects ?? []).map((subject) => ({
+          ...subject,
+          stageNumber: selectedById.get(subject.id)?.stageNumber ?? subject.stageNumber ?? 1,
+          teacherNames: selectedById.get(subject.id)?.teacherNames,
+          academicStatus: selectedById.get(subject.id)?.academicStatus,
+        }))
       : (selectedSubjects ?? []).filter((subject) => selectedSubjectIds.includes(subject.id));
 
     const normalizedSearch = subjectSearch.trim().toLowerCase();
@@ -99,6 +106,15 @@ export default function CourseDetail() {
       );
     });
   }, [allSubjects, canEditCurriculum, selectedSubjectIds, selectedSubjects, subjectSearch]);
+
+  const curriculumByStage = useMemo(() => {
+    const grouped = new Map<number, typeof curriculumRows>();
+    for (const subject of curriculumRows) {
+      const stage = subject.stageNumber ?? 1;
+      grouped.set(stage, [...(grouped.get(stage) ?? []), subject]);
+    }
+    return Array.from(grouped.entries()).sort(([stageA], [stageB]) => stageA - stageB);
+  }, [curriculumRows]);
 
   if (courseLoading) {
     return (
@@ -123,7 +139,10 @@ export default function CourseDetail() {
   }
 
   function saveCurriculum() {
-    updateCourseSubjects.mutate(selectedSubjectIds);
+    const stageNumbers = Object.fromEntries(
+      (selectedSubjects ?? []).map((subject) => [subject.id, subject.stageNumber ?? 1]),
+    );
+    updateCourseSubjects.mutate({ subjectIds: selectedSubjectIds, stageNumbers });
   }
 
   function handleGradeUpdate(id: number, grade?: number, attendance?: number) {
@@ -153,13 +172,13 @@ export default function CourseDetail() {
                 {course.code}
               </Badge>
               <span className="text-sm text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3 h-3" /> {course.schedule || "Horario a definir"}
+                <Clock className="w-3 h-3" /> Periodo definido por turma
               </span>
             </div>
             <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">{course.name}</h1>
             <div className="flex items-center gap-2 mt-2 text-muted-foreground">
               <User className="w-4 h-4" />
-              <span className="font-medium">{course.teacherName || "Professor nao atribuido"}</span>
+              <span className="font-medium">{course.classSectionCount ?? 0} turmas cadastradas</span>
             </div>
           </div>          {user?.role === "admin" && (
             <Badge variant="secondary" className="bg-slate-100 text-slate-700">
@@ -375,55 +394,74 @@ export default function CourseDetail() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {curriculumRows.map((subject) => {
-                        const checked = selectedSubjectIds.includes(subject.id);
-
-                        return (
-                          <TableRow
-                            key={subject.id}
-                            className={canEditCurriculum ? "cursor-pointer select-none hover:bg-primary/5" : undefined}
-                            role={canEditCurriculum ? "button" : undefined}
-                            tabIndex={canEditCurriculum ? 0 : undefined}
-                            onClick={
-                              canEditCurriculum
-                                ? () => toggleSubject(subject.id, !checked)
-                                : undefined
-                            }
-                            onKeyDown={
-                              canEditCurriculum
-                                ? (event) => {
-                                    if (event.key !== "Enter" && event.key !== " ") return;
-                                    event.preventDefault();
-                                    toggleSubject(subject.id, !checked);
-                                  }
-                                : undefined
-                            }
-                          >
-                            <TableCell className="align-top text-xs sm:text-sm">
-                              <div className="flex items-start gap-3">
-                                {canEditCurriculum && (
-                                  <Checkbox
-                                    checked={checked}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onCheckedChange={(value) => toggleSubject(subject.id, Boolean(value))}
-                                    aria-label={`Selecionar materia ${subject.name}`}
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="font-medium leading-snug">{subject.name}</p>
-                                  <p className="text-[11px] sm:text-xs text-muted-foreground">{subject.code}</p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="align-top text-xs sm:text-sm whitespace-nowrap">
-                              {subject.workloadHours}h
-                            </TableCell>
-                            <TableCell className="align-top text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                              {subject.description || "Sem descricao."}
+                      {curriculumByStage.map(([stage, subjects]) => (
+                        <Fragment key={`stage-${stage}`}>
+                          <TableRow className="bg-slate-50">
+                            <TableCell colSpan={3} className="text-xs sm:text-sm font-semibold text-primary">
+                              {stage}ª Etapa
                             </TableCell>
                           </TableRow>
-                        );
-                      })}
+                          {subjects.map((subject) => {
+                            const checked = selectedSubjectIds.includes(subject.id);
+
+                            return (
+                              <TableRow
+                                key={subject.id}
+                                className={canEditCurriculum ? "cursor-pointer select-none hover:bg-primary/5" : undefined}
+                                role={canEditCurriculum ? "button" : undefined}
+                                tabIndex={canEditCurriculum ? 0 : undefined}
+                                onClick={
+                                  canEditCurriculum
+                                    ? () => toggleSubject(subject.id, !checked)
+                                    : undefined
+                                }
+                                onKeyDown={
+                                  canEditCurriculum
+                                    ? (event) => {
+                                        if (event.key !== "Enter" && event.key !== " ") return;
+                                        event.preventDefault();
+                                        toggleSubject(subject.id, !checked);
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <TableCell className="align-top text-xs sm:text-sm">
+                                  <div className="flex items-start gap-3">
+                                    {canEditCurriculum && (
+                                      <Checkbox
+                                        checked={checked}
+                                        onClick={(event) => event.stopPropagation()}
+                                        onCheckedChange={(value) => toggleSubject(subject.id, Boolean(value))}
+                                        aria-label={`Selecionar materia ${subject.name}`}
+                                      />
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="font-medium leading-snug">{subject.name}</p>
+                                      <p className="text-[11px] sm:text-xs text-muted-foreground">{subject.code}</p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top text-xs sm:text-sm whitespace-nowrap">
+                                  {subject.workloadHours}h
+                                </TableCell>
+                                <TableCell className="align-top text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                                  <p>{subject.description || "Sem descricao."}</p>
+                                  {subject.teacherNames && subject.teacherNames.length > 0 && (
+                                    <p className="mt-1 text-[11px] sm:text-xs">
+                                      Professores: {subject.teacherNames.join(", ")}
+                                    </p>
+                                  )}
+                                  {subject.academicStatus && (
+                                    <Badge variant="outline" className="mt-2">
+                                      {subject.academicStatus}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>

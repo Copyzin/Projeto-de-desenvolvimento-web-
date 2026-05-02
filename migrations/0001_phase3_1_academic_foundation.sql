@@ -16,8 +16,10 @@ CREATE TABLE IF NOT EXISTS class_sections (
   name TEXT NOT NULL,
   course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   academic_term_id INTEGER NOT NULL REFERENCES academic_terms(id) ON DELETE CASCADE,
+  coordinator_teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  current_stage_number INTEGER NOT NULL DEFAULT 1,
   room TEXT,
-  schedule_summary TEXT,
+  period TEXT NOT NULL DEFAULT 'noturno',
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -26,6 +28,14 @@ CREATE TABLE IF NOT EXISTS class_section_teachers (
   teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   PRIMARY KEY (class_section_id, teacher_id)
+);
+
+CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
+  class_section_id INTEGER NOT NULL REFERENCES class_sections(id) ON DELETE CASCADE,
+  subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (class_section_id, subject_id, teacher_id)
 );
 
 ALTER TABLE enrollments
@@ -98,13 +108,14 @@ WITH selected_term AS (
   ORDER BY is_active DESC, starts_at DESC
   LIMIT 1
 )
-INSERT INTO class_sections (code, name, course_id, academic_term_id, schedule_summary)
+INSERT INTO class_sections (code, name, course_id, academic_term_id, current_stage_number, period)
 SELECT
   CONCAT(c.code, '-LEGACY-T1'),
   'Turma Legacy',
   c.id,
   st.id,
-  c.schedule
+  1,
+  'noturno'
 FROM courses c
 CROSS JOIN selected_term st
 WHERE NOT EXISTS (

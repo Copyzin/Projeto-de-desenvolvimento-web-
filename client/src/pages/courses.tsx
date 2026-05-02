@@ -3,20 +3,19 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link } from "wouter";
-import { Calendar, Loader2, Plus, Search, User } from "lucide-react";
+import { Loader2, Plus, Search, Users } from "lucide-react";
 import { api } from "@shared/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { useCourses } from "@/hooks/use-courses";
-import { useUsers } from "@/hooks/use-users";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const courseSchema = api.courses.create.input;
 
@@ -25,7 +24,6 @@ type CourseForm = z.infer<typeof courseSchema>;
 export default function Courses() {
   const { user } = useAuth();
   const { courses, isLoading, createCourse } = useCourses();
-  const { data: teachers } = useUsers("teacher");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -35,8 +33,6 @@ export default function Courses() {
     defaultValues: {
       name: "",
       description: "",
-      schedule: "",
-      teacherId: undefined,
     },
   });
 
@@ -87,30 +83,6 @@ export default function Courses() {
                   {form.formState.errors.name && (
                     <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Horario</Label>
-                  <Input {...form.register("schedule")} placeholder="Ex: Seg/Qua 19:00-21:00" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Professor responsavel</Label>
-                  <Select
-                    onValueChange={(value) => form.setValue("teacherId", Number(value))}
-                    value={form.watch("teacherId") ? String(form.watch("teacherId")) : undefined}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um professor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teachers?.map((teacher) => (
-                        <SelectItem key={teacher.id} value={String(teacher.id)}>
-                          {teacher.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -171,12 +143,17 @@ export default function Courses() {
                 </CardHeader>
                 <CardContent className="p-6 flex-1 space-y-3">
                   <div className="flex items-center text-sm text-muted-foreground gap-2">
-                    <User className="w-4 h-4" />
-                    <span>{course.teacherName || "Professor nao atribuido"}</span>
-                  </div>
-                  <div className="flex items-center text-sm text-muted-foreground gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>{course.schedule || "Horario a definir"}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="inline-flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                          <Users className="w-4 h-4" />
+                          <span>
+                            {course.classSectionCount ?? 0} {(course.classSectionCount ?? 0) === 1 ? "turma" : "turmas"}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>quantidade de turmas cadastradas nesse curso</TooltipContent>
+                    </Tooltip>
                   </div>
                   <p className="text-sm text-muted-foreground line-clamp-3">
                     {course.description || "Sem descricao cadastrada."}

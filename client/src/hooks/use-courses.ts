@@ -112,12 +112,13 @@ export function useCreateSubject() {
   });
 }
 
-export function useCourseSubjects(courseId: number) {
+export function useCourseSubjects(courseId: number, classSectionId?: number | null) {
   return useQuery({
-    queryKey: [api.courses.subjects.list.path, courseId],
+    queryKey: [api.courses.subjects.list.path, courseId, classSectionId],
     queryFn: async () => {
-      const url = buildUrl(api.courses.subjects.list.path, { id: courseId });
-      const res = await fetch(url, { credentials: "include" });
+      const url = new URL(buildUrl(api.courses.subjects.list.path, { id: courseId }), window.location.origin);
+      if (classSectionId) url.searchParams.set("classSectionId", String(classSectionId));
+      const res = await fetch(url.toString(), { credentials: "include" });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({ message: "Falha ao buscar grade" }));
         throw new Error(payload.message || "Falha ao buscar grade");
@@ -133,18 +134,19 @@ export function useUpdateCourseSubjects(courseId: number) {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (subjectIds: number[]) => {
+    mutationFn: async (input: number[] | { subjectIds: number[]; stageNumbers?: Record<number, number> }) => {
+      const requestPayload = Array.isArray(input) ? { subjectIds: input } : input;
       const url = buildUrl(api.courses.subjects.update.path, { id: courseId });
       const res = await fetch(url, {
         method: api.courses.subjects.update.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjectIds }),
+        body: JSON.stringify(requestPayload),
         credentials: "include",
       });
 
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.message || "Falha ao atualizar grade");
-      return api.courses.subjects.update.responses[200].parse(payload);
+      const responsePayload = await res.json();
+      if (!res.ok) throw new Error(responsePayload.message || "Falha ao atualizar grade");
+      return api.courses.subjects.update.responses[200].parse(responsePayload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.courses.subjects.list.path, courseId] });

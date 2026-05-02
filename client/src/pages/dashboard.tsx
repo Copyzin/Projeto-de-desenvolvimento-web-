@@ -18,7 +18,7 @@ function pickIcon(label: string) {
   if (lower.includes("curso")) return BookOpen;
   if (lower.includes("aluno")) return Users;
   if (lower.includes("nota")) return BarChart3;
-  if (lower.includes("horario")) return Calendar;
+  if (lower.includes("turma") || lower.includes("periodo")) return Calendar;
   return Bell;
 }
 
@@ -53,7 +53,7 @@ export default function Dashboard() {
 
   if (!user) return null;
 
-  const teacherCourses = courses?.filter((course) => course.teacherId === user.id) ?? [];
+  const teacherCourses = courses ?? [];
   const studentEnrollments = enrollments ?? [];
 
   return (
@@ -96,7 +96,7 @@ export default function Dashboard() {
             <Card>
               <CardHeader>
                 <CardTitle>Agenda de Aulas</CardTitle>
-                <CardDescription>Horario de aulas e turmas vinculadas.</CardDescription>
+                <CardDescription>Turmas vinculadas aos cursos.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {(user.role === "admin" ? courses : teacherCourses)?.slice(0, 6).map((course) => (
@@ -107,13 +107,13 @@ export default function Dashboard() {
                   >
                     <div>
                       <p className="font-medium">{course.name}</p>
-                      <p className="text-sm text-muted-foreground">{course.schedule || "Horario a definir"}</p>
+                      <p className="text-sm text-muted-foreground">Periodo definido por turma</p>
                     </div>
                     <Badge variant="outline">Ativo</Badge>
                   </motion.div>
                 ))}
                 {((user.role === "admin" ? courses : teacherCourses)?.length ?? 0) === 0 && (
-                  <p className="text-sm text-muted-foreground">Nenhum horario cadastrado.</p>
+                  <p className="text-sm text-muted-foreground">Nenhuma turma cadastrada.</p>
                 )}
               </CardContent>
             </Card>
@@ -124,7 +124,7 @@ export default function Dashboard() {
           <motion.div variants={fadeInUp}>
             <Card>
               <CardHeader>
-                <CardTitle>Meu Horario</CardTitle>
+                <CardTitle>Minhas turmas</CardTitle>
                 <CardDescription>Resumo de aulas, faltas e notas.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">

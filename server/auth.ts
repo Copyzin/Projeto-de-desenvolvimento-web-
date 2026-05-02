@@ -212,7 +212,7 @@ export function setupAuth(app: Express) {
   });
 
   app.get(api.auth.me.path, (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Nao autenticado" });
     const user = req.user as User;
     return res.json(sanitizeUser(user));
   });

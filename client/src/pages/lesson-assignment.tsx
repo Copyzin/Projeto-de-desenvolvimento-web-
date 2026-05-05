@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { DndContext, DragOverlay, type DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+} from "@dnd-kit/core";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Pencil, Plus, Save, Trash2, Wand2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -116,14 +125,18 @@ function DraggableBlock({
   children: React.ReactNode;
 }) {
   const dragId = sourceSlot ? `${sourceSlot}:${block.clientId}` : `available:${block.clientId}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: dragId,
     data: { blockClientId: block.clientId, sourceSlot } satisfies DragBlockData,
   });
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
 
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={cn(isDragging && "opacity-60")}>
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={cn("touch-none", isDragging && "opacity-0")}
+    >
       {children}
     </div>
   );
@@ -407,6 +420,13 @@ export default function LessonAssignment() {
     teacherId: 0,
     locationId: 0,
   });
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+  );
 
   const selectedSection = scope?.classSections.find((section) => section.id === selectedClassSectionId);
   const selectedCourseId = selectedSection?.courseId ?? 0;
@@ -715,7 +735,7 @@ export default function LessonAssignment() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6 overflow-x-hidden", activeDragId && "select-none")}>
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="font-display text-3xl font-bold tracking-tight">Atribuicao de Aulas</h2>
@@ -873,6 +893,7 @@ export default function LessonAssignment() {
 
       {step === 2 && (
         <DndContext
+          sensors={dndSensors}
           onDragStart={(event) => {
             const dragData = event.active.data.current as DragBlockData | undefined;
             setActiveDragId(dragData?.blockClientId ?? null);
@@ -880,7 +901,7 @@ export default function LessonAssignment() {
           onDragCancel={() => setActiveDragId(null)}
           onDragEnd={handleDragEnd}
         >
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_17rem] 2xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="grid min-w-0 gap-4 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_17rem] 2xl:grid-cols-[minmax(0,1fr)_18rem]">
             <Card className="rounded-lg">
               <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <CardTitle className="text-lg">Tabela semanal</CardTitle>
@@ -985,7 +1006,7 @@ export default function LessonAssignment() {
               </CardContent>
             </Card>
 
-            <aside className="space-y-3">
+            <aside className="min-w-0 space-y-3">
               <div className="rounded-lg border bg-white p-4">
                 <h3 className="font-semibold">Blocos disponiveis</h3>
                 <p className="text-sm text-muted-foreground">Arraste para os slots de aula.</p>
@@ -1024,9 +1045,9 @@ export default function LessonAssignment() {
               </div>
             </aside>
           </div>
-          <DragOverlay>
+          <DragOverlay dropAnimation={null}>
             {activeDragDetails ? (
-              <div className="flex min-h-20 w-36 flex-col justify-center rounded-md border bg-white p-2 text-primary shadow-xl ring-2 ring-primary/25 md:min-h-24 md:w-40">
+              <div className="pointer-events-none flex min-h-20 w-[clamp(8.75rem,12vw,11rem)] flex-col justify-center rounded-md border bg-white p-2 text-primary shadow-xl ring-2 ring-primary/25 md:min-h-24">
                 <p className="max-h-10 break-words text-[0.66rem] font-semibold leading-tight md:text-[0.74rem]">
                   {activeDragDetails.subject?.name ?? "Materia"}
                 </p>

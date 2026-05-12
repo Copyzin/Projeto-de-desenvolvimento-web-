@@ -9,9 +9,10 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core";
-import { ArrowRight, CalendarDays, ChevronDown, MapPin, Pencil, Plus, Save, Trash2, Wand2, X } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, Download, MapPin, Pencil, Plus, Save, Trash2, Wand2, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { getPrintTableColor, printTableDocument, type PrintTableDocument } from "@/lib/print-table";
 import { useAuth } from "@/hooks/use-auth";
 import { useCourseSubjects } from "@/hooks/use-courses";
 import {
@@ -36,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PrintTableDialog } from "@/components/print-table-dialog";
 import { useToast } from "@/hooks/use-toast";
 
 type Period = "matutino" | "vespertino" | "noturno";
@@ -393,7 +395,7 @@ function LocationPicker({
 export default function LessonAssignment() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: scope } = useStudentScope(user?.role === "admin");
+  const { data: scope, error: scopeError } = useStudentScope(user?.role === "admin");
   const { data: terms } = useAcademicTerms();
   const { data: teachers } = useUsers("teacher");
   const { data: locations } = useLessonLocations();
@@ -413,6 +415,7 @@ export default function LessonAssignment() {
   const [hydratedKey, setHydratedKey] = useState("");
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [slotFeedback, setSlotFeedback] = useState<SlotFeedback>({});
   const [blockForm, setBlockForm] = useState<LessonBlock>({
     clientId: "",
@@ -429,6 +432,8 @@ export default function LessonAssignment() {
   );
 
   const selectedSection = scope?.classSections.find((section) => section.id === selectedClassSectionId);
+  const scopeErrorMessage = scopeError instanceof Error ? scopeError.message : null;
+  const selectedAcademicTerm = terms?.find((term) => term.id === selectedAcademicTermId);
   const selectedCourseId = selectedSection?.courseId ?? 0;
   const { data: subjects } = useCourseSubjects(selectedCourseId);
   const { data: activeSchedule } = useLessonSchedule(selectedClassSectionId, selectedAcademicTermId);
@@ -488,6 +493,60 @@ export default function LessonAssignment() {
     );
   }, [blocks, locations, subjects, teachers]);
   const activeDragDetails = activeDragId ? blockDetails.get(activeDragId) : undefined;
+  const printBlockColors = useMemo(
+    () => new Map(blocks.map((block, index) => [block.clientId, getPrintTableColor(index)])),
+    [blocks],
+  );
+  const lessonPrintDocument = useMemo<PrintTableDocument>(() => {
+    const classLabel = selectedSection
+      ? `${selectedSection.code} - ${selectedSection.name}`
+      : "Turma nao selecionada";
+    const termLabel = selectedAcademicTerm
+      ? `${selectedAcademicTerm.code} - ${selectedAcademicTerm.name}`
+      : "Semestre nao selecionado";
+
+    return {
+      title: "Tabela semanal de aulas",
+      subtitle: classLabel,
+      details: [`Semestre: ${termLabel}`, `Periodo: ${period}`, `Gerado em: ${new Date().toLocaleString("pt-BR")}`],
+      columns: DAYS.map((day) => day.label),
+      legend: blocks.map((block) => {
+        const details = blockDetails.get(block.clientId);
+        return {
+          label: details?.subject?.name ?? "Materia",
+          description: `Prof. ${details?.teacher?.name ?? "Professor"}`,
+          meta: details?.location?.name ?? "Localizacao",
+          color: printBlockColors.get(block.clientId) ?? getPrintTableColor(0),
+        };
+      }),
+      rows: PERIOD_ROWS[period].map((row) => {
+        if (row.kind === "interval") {
+          return {
+            header: row.label,
+            kind: "interval",
+            intervalLabel: "Intervalo",
+          };
+        }
+
+        return {
+          header: row.label,
+          cells: DAYS.map((day) => {
+            const key = slotKey(day.key, row.lessonNumber);
+            const blockId = slots[key];
+            const details = blockId ? blockDetails.get(blockId) : undefined;
+            if (!blockId || !details) return {};
+
+            return {
+              title: details.subject?.name ?? "Materia",
+              subtitle: `Prof. ${details.teacher?.name ?? "Professor"}`,
+              meta: details.location?.name ?? "Localizacao",
+              color: printBlockColors.get(blockId) ?? getPrintTableColor(0),
+            };
+          }),
+        };
+      }),
+    };
+  }, [blockDetails, blocks, period, printBlockColors, selectedAcademicTerm, selectedSection, slots]);
 
   useEffect(() => {
     if (!slotFeedback.targetSlot && !slotFeedback.relocatedSlot) return;
@@ -723,6 +782,32 @@ export default function LessonAssignment() {
     deleteDraft.mutate({ classSectionId: selectedClassSectionId, academicTermId: selectedAcademicTermId });
   }
 
+  function openPrintDialog() {
+    if (blocks.length === 0 || Object.values(slots).filter(Boolean).length === 0) {
+      toast({
+        title: "Tabela sem dados para impressao",
+        description: "Crie blocos e aloque ao menos um horario antes de imprimir em PDF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPrintDialogOpen(true);
+  }
+
+  function confirmPrintTable() {
+    try {
+      printTableDocument(lessonPrintDocument);
+      setPrintDialogOpen(false);
+    } catch (error) {
+      toast({
+        title: "Nao foi possivel imprimir",
+        description: error instanceof Error ? error.message : "Verifique se o navegador bloqueou a janela de impressao.",
+        variant: "destructive",
+      });
+    }
+  }
+
   const editingBlock = editingBlockId ? blocks.find((block) => block.clientId === editingBlockId) : undefined;
 
   if (user?.role !== "admin") {
@@ -741,10 +826,27 @@ export default function LessonAssignment() {
           <h2 className="font-display text-3xl font-bold tracking-tight">Atribuicao de Aulas</h2>
           <p className="text-muted-foreground">Monte a tabela semanal ativa por turma e semestre letivo.</p>
         </div>
-        <Badge variant="outline" className="w-fit bg-white">
-          {activeSchedule ? "Tabela existente" : "Nova tabela"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="icon" onClick={openPrintDialog} aria-label="Imprimir tabela em PDF">
+            <Download className="h-4 w-4" />
+          </Button>
+          <Badge variant="outline" className="w-fit bg-white">
+            {activeSchedule ? "Tabela existente" : "Nova tabela"}
+          </Badge>
+        </div>
       </div>
+
+      {scopeErrorMessage && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          Nao foi possivel carregar cursos e turmas: {scopeErrorMessage}
+        </div>
+      )}
+
+      {scope && scope.classSections.length === 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+          Nenhuma turma encontrada. Reinicie o servidor para o seed criar turmas padrao para cursos existentes.
+        </div>
+      )}
 
       <Card className="rounded-lg">
         <CardHeader>
@@ -810,11 +912,11 @@ export default function LessonAssignment() {
       </Card>
 
       {step === 1 && (
-        <Card className="rounded-lg">
+        <Card className="relative min-h-[34rem] overflow-visible rounded-lg">
           <CardHeader>
             <CardTitle className="text-lg">Criacao de blocos</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="flex min-h-[27rem] flex-col space-y-5 overflow-visible">
             <div className="grid gap-4 lg:grid-cols-4">
               <FilteredPicker
                 label="Materia"
@@ -881,7 +983,7 @@ export default function LessonAssignment() {
                 );
               })}
             </div>
-            <div className="flex justify-end">
+            <div className="mt-auto flex justify-end pt-4">
               <Button type="button" disabled={!selectedClassSectionId || !selectedAcademicTermId} onClick={() => setStep(2)}>
                 Ir para alocacao
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -1115,6 +1217,13 @@ export default function LessonAssignment() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PrintTableDialog
+        open={printDialogOpen}
+        onOpenChange={setPrintDialogOpen}
+        onConfirm={confirmPrintTable}
+        description="Sera gerada a impressao em PDF da tabela semanal atual, incluindo cores dos blocos e legenda. No dialogo do navegador, selecione salvar como PDF."
+      />
     </div>
   );
 }

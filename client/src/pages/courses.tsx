@@ -23,7 +23,7 @@ type CourseForm = z.infer<typeof courseSchema>;
 
 export default function Courses() {
   const { user } = useAuth();
-  const { courses, isLoading, createCourse } = useCourses();
+  const { courses, isLoading, error, createCourse } = useCourses();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -37,6 +37,7 @@ export default function Courses() {
   });
 
   const canCreate = user?.role === "admin";
+  const courseErrorMessage = error instanceof Error ? error.message : null;
 
   const filteredCourses = courses?.filter((course) => {
     const normalizedSearch = search.toLowerCase();
@@ -122,6 +123,12 @@ export default function Courses() {
       {user?.role === "admin" && (
         <div className="rounded-lg border border-dashed bg-slate-50 p-4 text-sm text-muted-foreground">
           Matricula de alunos centralizada na aba <strong>Alunos</strong>. Nesta tela voce gerencia cursos e grade curricular.
+        </div>
+      )}
+
+      {courseErrorMessage && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          Nao foi possivel carregar os cursos: {courseErrorMessage}
         </div>
       )}
 

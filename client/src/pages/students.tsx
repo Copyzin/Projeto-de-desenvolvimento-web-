@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Lock, Mail, Plus, Search, ShieldAlert, Smartphone } from "lucide-react";
+import { KeyRound, Loader2, Lock, Mail, Plus, Search, ShieldAlert, Smartphone } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useEnrollStudent } from "@/hooks/use-enrollments";
 import { useCourseSubjects } from "@/hooks/use-courses";
@@ -77,6 +77,11 @@ export default function Students() {
   const [lockTarget, setLockTarget] = useState<{ enrollmentId: number; name: string; courseId: number } | null>(null);
   const [lockReason, setLockReason] = useState("");
   const [approvedSubjectIds, setApprovedSubjectIds] = useState<number[]>([]);
+  const [initialAccess, setInitialAccess] = useState<{
+    studentName: string;
+    ra: string;
+    password: string;
+  } | null>(null);
 
   const lockCourseId = lockTarget?.courseId ?? 0;
   const { data: lockCourseSubjects } = useCourseSubjects(lockCourseId);
@@ -146,9 +151,14 @@ export default function Students() {
 
   const onSubmit = (data: FormData) => {
     enrollStudent.mutate(data, {
-      onSuccess: () => {
+      onSuccess: (payload) => {
         setIsDialogOpen(false);
         form.reset();
+        setInitialAccess({
+          studentName: payload.user.name,
+          ra: payload.user.ra,
+          password: payload.initialPassword,
+        });
       },
     });
   };
@@ -266,6 +276,32 @@ export default function Students() {
           </Dialog>
         )}
       </div>
+
+      {user.role === "admin" && initialAccess && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-md bg-white p-2 text-primary ring-1 ring-primary/20">
+                <KeyRound className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Senha inicial gerada</p>
+                <p className="text-sm text-muted-foreground">
+                  {initialAccess.studentName} | R.A: {initialAccess.ra}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="rounded-md border bg-white px-3 py-2 font-mono text-sm">
+                {initialAccess.password}
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setInitialAccess(null)}>
+                Dispensar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="py-4 space-y-4">

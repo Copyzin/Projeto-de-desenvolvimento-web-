@@ -355,9 +355,6 @@ export const approvedSubjectRecords = pgTable("approved_subject_records", {
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
   type: text("type", { enum: ["announcement", "finance", "academic", "system"] })
     .notNull()
     .default("system"),
@@ -367,10 +364,34 @@ export const notifications = pgTable("notifications", {
   destinationRoute: text("destination_route").notNull(),
   relatedEntityType: text("related_entity_type"),
   relatedEntityId: integer("related_entity_id"),
-  isRead: boolean("is_read").notNull().default(false),
-  readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const notificationRecipients = pgTable(
+  "notification_recipients",
+  {
+    id: serial("id").primaryKey(),
+    notificationId: integer("notification_id")
+      .notNull()
+      .references(() => notifications.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: integer("course_id").references(() => courses.id, { onDelete: "set null" }),
+    classSectionId: integer("class_section_id").references(() => classSections.id, {
+      onDelete: "set null",
+    }),
+    isRead: boolean("is_read").notNull().default(false),
+    readAt: timestamp("read_at"),
+    deliveredAt: timestamp("delivered_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    notificationUserUnique: uniqueIndex("notification_recipients_notification_user_unique").on(
+      table.notificationId,
+      table.userId,
+    ),
+  }),
+);
 
 export const courseMaterials = pgTable("course_materials", {
   id: serial("id").primaryKey(),
@@ -446,7 +467,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   announcements: many(announcements),
   enrollmentStatusChanges: many(enrollmentStatusHistory),
   approvedSubjectRecords: many(approvedSubjectRecords),
-  receivedNotifications: many(notifications, { relationName: "notificationRecipient" }),
+  notificationRecipients: many(notificationRecipients),
   sentNotifications: many(notifications, { relationName: "notificationSender" }),
   authoredMaterials: many(courseMaterials),
   pinnedMaterials: many(userPinnedMaterials),
@@ -687,16 +708,31 @@ export const approvedSubjectRecordsRelations = relations(approvedSubjectRecords,
   }),
 }));
 
-export const notificationsRelations = relations(notifications, ({ one }) => ({
-  recipient: one(users, {
-    fields: [notifications.userId],
-    references: [users.id],
-    relationName: "notificationRecipient",
-  }),
+export const notificationsRelations = relations(notifications, ({ one, many }) => ({
   sender: one(users, {
     fields: [notifications.senderId],
     references: [users.id],
     relationName: "notificationSender",
+  }),
+  recipients: many(notificationRecipients),
+}));
+
+export const notificationRecipientsRelations = relations(notificationRecipients, ({ one }) => ({
+  notification: one(notifications, {
+    fields: [notificationRecipients.notificationId],
+    references: [notifications.id],
+  }),
+  user: one(users, {
+    fields: [notificationRecipients.userId],
+    references: [users.id],
+  }),
+  course: one(courses, {
+    fields: [notificationRecipients.courseId],
+    references: [courses.id],
+  }),
+  classSection: one(classSections, {
+    fields: [notificationRecipients.classSectionId],
+    references: [classSections.id],
   }),
 }));
 
@@ -831,9 +867,14 @@ export const insertApprovedSubjectRecordSchema = createInsertSchema(approvedSubj
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
+  createdAt: true,
+});
+
+export const insertNotificationRecipientSchema = createInsertSchema(notificationRecipients).omit({
+  id: true,
   isRead: true,
   readAt: true,
-  createdAt: true,
+  deliveredAt: true,
 });
 
 export const insertCourseMaterialSchema = createInsertSchema(courseMaterials).omit({
@@ -879,6 +920,7 @@ export type AnnouncementCourse = typeof announcementCourses.$inferSelect;
 export type EnrollmentStatusHistory = typeof enrollmentStatusHistory.$inferSelect;
 export type ApprovedSubjectRecord = typeof approvedSubjectRecords.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type NotificationRecipient = typeof notificationRecipients.$inferSelect;
 export type CourseMaterial = typeof courseMaterials.$inferSelect;
 export type UserPinnedMaterial = typeof userPinnedMaterials.$inferSelect;
 export type PasswordResetRequest = typeof passwordResetRequests.$inferSelect;
@@ -906,6 +948,7 @@ export type InsertAnnouncementTarget = z.infer<typeof insertAnnouncementTargetSc
 export type InsertEnrollmentStatusHistory = z.infer<typeof insertEnrollmentStatusHistorySchema>;
 export type InsertApprovedSubjectRecord = z.infer<typeof insertApprovedSubjectRecordSchema>;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertNotificationRecipient = z.infer<typeof insertNotificationRecipientSchema>;
 export type InsertCourseMaterial = z.infer<typeof insertCourseMaterialSchema>;
 export type InsertUserPinnedMaterial = z.infer<typeof insertUserPinnedMaterialSchema>;
 export type InsertPasswordResetRequest = z.infer<typeof insertPasswordResetRequestSchema>;

@@ -15,6 +15,7 @@ export function useStudentScope(enabled = true) {
       return api.students.scope.responses[200].parse(await res.json());
     },
     enabled,
+    refetchOnMount: "always",
   });
 }
 

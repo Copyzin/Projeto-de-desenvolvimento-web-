@@ -415,18 +415,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const input = api.students.enroll.input.parse(req.body);
 
-      const temporaryPassword = generateCancelToken().slice(0, 12);
-      const passwordHash = await hashPassword(temporaryPassword);
+      const temporaryPasswordHash = await hashPassword(generateCancelToken().slice(0, 12));
 
       const student = await storage.createUser({
         username: normalizeCpf(input.cpf),
-        password: passwordHash,
+        password: temporaryPasswordHash,
         role: "student",
         name: input.name,
         cpf: normalizeCpf(input.cpf),
         phone: input.phone,
         email: input.email,
         avatarUrl: null,
+      });
+
+      const initialPassword = `Aluno@${student.ra}`;
+      const studentWithInitialPassword = await storage.updateUser(student.id, {
+        password: await hashPassword(initialPassword),
       });
 
       const enrollment = await storage.createEnrollment({
@@ -439,8 +443,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       return res.status(201).json({
-        user: sanitizeUser(student),
+        user: sanitizeUser(studentWithInitialPassword),
         enrollment,
+        initialPassword,
       });
     } catch (error) {
       return handleRouteError(res, error, "Nao foi possivel matricular o aluno");

@@ -19,6 +19,7 @@ import {
   lessonScheduleDrafts,
   lessonSchedules,
   lessonScheduleSlots,
+  notificationRecipients,
   notifications,
   passwordResetRequests,
   subjects,
@@ -41,6 +42,7 @@ import {
   type InsertEnrollment,
   type InsertLessonLocation,
   type InsertNotification,
+  type InsertNotificationRecipient,
   type InsertPasswordResetRequest,
   type InsertSubject,
   type InsertUser,
@@ -127,6 +129,20 @@ export interface StudentsFilterInput {
   status?: Enrollment["status"];
 }
 
+type NotificationRecipientInput = Pick<
+  InsertNotificationRecipient,
+  "userId" | "courseId" | "classSectionId"
+>;
+
+type NotificationListItem = Notification & {
+  userId: number;
+  courseId: number | null;
+  classSectionId: number | null;
+  isRead: boolean;
+  readAt: Date | null;
+  senderName?: string;
+};
+
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByLoginIdentifier(identifier: string): Promise<User | undefined>;
@@ -139,6 +155,7 @@ export interface IStorage {
   getCourse(id: number): Promise<CourseResponse | undefined>;
   createCourse(course: InsertCourse): Promise<Course>;
   updateCourse(id: number, updates: Partial<InsertCourse>): Promise<Course>;
+  ensureDefaultClassSections(): Promise<void>;
   getOrCreateActiveAcademicTerm(): Promise<AcademicTerm>;
   getAcademicTerms(): Promise<AcademicTerm[]>;
   createClassSection(section: InsertClassSection): Promise<ClassSection>;
@@ -205,7 +222,7 @@ export interface IStorage {
   pinMaterial(userId: number, materialId: number): Promise<void>;
   unpinMaterial(userId: number, materialId: number): Promise<void>;
 
-  getNotificationsForUser(userId: number, unreadOnly?: boolean): Promise<Array<Notification & { senderName?: string }>>;
+  getNotificationsForUser(userId: number, unreadOnly?: boolean): Promise<NotificationListItem[]>;
   markNotificationRead(notificationId: number, userId: number): Promise<void>;
 
   createPasswordResetRequest(payload: InsertPasswordResetRequest): Promise<PasswordResetRequest>;
@@ -278,27 +295,40 @@ export class DatabaseStorage implements IStorage {
 
   private async ensureDefaultClassSection(course: Course, classPeriod: ClassPeriod = "noturno") {
     const activeTerm = await this.getOrCreateActiveAcademicTerm();
+    const defaultCode = this.buildDefaultSectionCode(course.code, activeTerm.code);
     const [existing] = await db
       .select({ id: classSections.id })
       .from(classSections)
-      .where(and(eq(classSections.courseId, course.id), eq(classSections.academicTermId, activeTerm.id)));
+      .where(
+        or(
+          and(eq(classSections.courseId, course.id), eq(classSections.academicTermId, activeTerm.id)),
+          eq(classSections.code, defaultCode),
+        ),
+      );
 
     if (existing) {
       return;
     }
 
-    const [section] = await db
+    await db
       .insert(classSections)
       .values({
         courseId: course.id,
         academicTermId: activeTerm.id,
-        code: this.buildDefaultSectionCode(course.code, activeTerm.code),
+        code: defaultCode,
         name: "Turma 1",
         currentStageNumber: 1,
         room: null,
         period: classPeriod,
       })
-      .returning();
+      .onConflictDoNothing();
+  }
+
+  async ensureDefaultClassSections(): Promise<void> {
+    const allCourses = await db.select().from(courses);
+    for (const course of allCourses) {
+      await this.ensureDefaultClassSection(course);
+    }
   }
 
   async getTeacherCourseIds(teacherId: number): Promise<number[]> {
@@ -583,6 +613,7 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
+    await this.ensureDefaultClassSection(course);
     return course;
   }
 
@@ -1520,9 +1551,28 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  private async createNotificationBatch(records: InsertNotification[]) {
-    if (records.length === 0) return;
-    await db.insert(notifications).values(records);
+  private async createNotificationWithRecipients(
+    notification: InsertNotification,
+    recipients: NotificationRecipientInput[],
+  ) {
+    if (recipients.length === 0) return;
+
+    const [createdNotification] = await db
+      .insert(notifications)
+      .values(notification)
+      .returning({ id: notifications.id });
+
+    await db
+      .insert(notificationRecipients)
+      .values(
+        recipients.map((recipient) => ({
+          notificationId: createdNotification.id,
+          userId: recipient.userId,
+          courseId: recipient.courseId ?? null,
+          classSectionId: recipient.classSectionId ?? null,
+        })),
+      )
+      .onConflictDoNothing();
   }
 
   private async resolveAnnouncementRecipients(input: {
@@ -1530,17 +1580,34 @@ export class DatabaseStorage implements IStorage {
     isGlobal: boolean;
     courseIds: number[];
     classSectionIds: number[];
-  }) {
+  }): Promise<NotificationRecipientInput[]> {
+    const recipients = new Map<number, NotificationRecipientInput>();
+    const addRecipient = (recipient: NotificationRecipientInput) => {
+      if (recipient.userId === input.authorId) return;
+
+      const current = recipients.get(recipient.userId);
+      if (!current) {
+        recipients.set(recipient.userId, recipient);
+        return;
+      }
+
+      if ((!current.courseId && recipient.courseId) || (!current.classSectionId && recipient.classSectionId)) {
+        recipients.set(recipient.userId, recipient);
+      }
+    };
+
     if (input.isGlobal) {
       const everyone = await db.select({ id: users.id }).from(users).where(sql`${users.id} <> ${input.authorId}`);
-      return everyone.map((row) => row.id);
+      return everyone.map((row) => ({
+        userId: row.id,
+        courseId: null,
+        classSectionId: null,
+      }));
     }
-
-    const recipients = new Set<number>();
 
     if (input.courseIds.length > 0) {
       const enrolledStudents = await db
-        .select({ userId: enrollments.studentId })
+        .select({ userId: enrollments.studentId, courseId: enrollments.courseId })
         .from(enrollments)
         .where(
           and(
@@ -1549,10 +1616,13 @@ export class DatabaseStorage implements IStorage {
           ),
         );
 
-      for (const row of enrolledStudents) recipients.add(row.userId);
+      for (const row of enrolledStudents) {
+        addRecipient({ userId: row.userId, courseId: row.courseId, classSectionId: null });
+      }
 
       const courseSectionTeachers = await db
         .select({
+          courseId: classSections.courseId,
           coordinatorTeacherId: classSections.coordinatorTeacherId,
           subjectTeacherId: classSectionSubjectTeachers.teacherId,
         })
@@ -1564,14 +1634,22 @@ export class DatabaseStorage implements IStorage {
         .where(inArray(classSections.courseId, input.courseIds));
 
       for (const row of courseSectionTeachers) {
-        if (row.coordinatorTeacherId) recipients.add(row.coordinatorTeacherId);
-        if (row.subjectTeacherId) recipients.add(row.subjectTeacherId);
+        if (row.coordinatorTeacherId) {
+          addRecipient({ userId: row.coordinatorTeacherId, courseId: row.courseId, classSectionId: null });
+        }
+        if (row.subjectTeacherId) {
+          addRecipient({ userId: row.subjectTeacherId, courseId: row.courseId, classSectionId: null });
+        }
       }
     }
 
     if (input.classSectionIds.length > 0) {
       const sectionStudents = await db
-        .select({ userId: enrollments.studentId })
+        .select({
+          userId: enrollments.studentId,
+          courseId: enrollments.courseId,
+          classSectionId: enrollments.classSectionId,
+        })
         .from(enrollments)
         .where(
           and(
@@ -1580,17 +1658,36 @@ export class DatabaseStorage implements IStorage {
           ),
         );
 
-      for (const row of sectionStudents) recipients.add(row.userId);
+      for (const row of sectionStudents) {
+        addRecipient({
+          userId: row.userId,
+          courseId: row.courseId,
+          classSectionId: row.classSectionId ?? null,
+        });
+      }
 
       const sectionTeachers = await db
-        .select({ teacherId: classSectionTeachers.teacherId })
+        .select({
+          teacherId: classSectionTeachers.teacherId,
+          courseId: classSections.courseId,
+          classSectionId: classSectionTeachers.classSectionId,
+        })
         .from(classSectionTeachers)
+        .innerJoin(classSections, eq(classSections.id, classSectionTeachers.classSectionId))
         .where(inArray(classSectionTeachers.classSectionId, input.classSectionIds));
 
-      for (const row of sectionTeachers) recipients.add(row.teacherId);
+      for (const row of sectionTeachers) {
+        addRecipient({
+          userId: row.teacherId,
+          courseId: row.courseId,
+          classSectionId: row.classSectionId,
+        });
+      }
 
       const sectionSubjectTeachers = await db
         .select({
+          courseId: classSections.courseId,
+          classSectionId: classSections.id,
           coordinatorTeacherId: classSections.coordinatorTeacherId,
           subjectTeacherId: classSectionSubjectTeachers.teacherId,
         })
@@ -1602,13 +1699,24 @@ export class DatabaseStorage implements IStorage {
         .where(inArray(classSections.id, input.classSectionIds));
 
       for (const row of sectionSubjectTeachers) {
-        if (row.coordinatorTeacherId) recipients.add(row.coordinatorTeacherId);
-        if (row.subjectTeacherId) recipients.add(row.subjectTeacherId);
+        if (row.coordinatorTeacherId) {
+          addRecipient({
+            userId: row.coordinatorTeacherId,
+            courseId: row.courseId,
+            classSectionId: row.classSectionId,
+          });
+        }
+        if (row.subjectTeacherId) {
+          addRecipient({
+            userId: row.subjectTeacherId,
+            courseId: row.courseId,
+            classSectionId: row.classSectionId,
+          });
+        }
       }
     }
 
-    recipients.delete(input.authorId);
-    return Array.from(recipients);
+    return Array.from(recipients.values());
   }
 
   async createAnnouncement(input: CreateAnnouncementInput): Promise<AnnouncementResponse> {
@@ -1659,9 +1767,8 @@ export class DatabaseStorage implements IStorage {
       classSectionIds: dedupedClassSectionIds,
     });
 
-    await this.createNotificationBatch(
-      recipients.map((userId) => ({
-        userId,
+    await this.createNotificationWithRecipients(
+      {
         type: "announcement",
         title: `Novo comunicado: ${announcement.title}`,
         message: truncate(announcement.content),
@@ -1669,7 +1776,8 @@ export class DatabaseStorage implements IStorage {
         destinationRoute: `/announcements?announcementId=${announcement.id}`,
         relatedEntityType: "announcement",
         relatedEntityId: announcement.id,
-      })),
+      },
+      recipients,
     );
 
     return {
@@ -1806,11 +1914,13 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async getNotificationsForUser(userId: number, unreadOnly = false): Promise<Array<Notification & { senderName?: string }>> {
+  async getNotificationsForUser(userId: number, unreadOnly = false): Promise<NotificationListItem[]> {
     const rows = await db
       .select({
         id: notifications.id,
-        userId: notifications.userId,
+        userId: notificationRecipients.userId,
+        courseId: notificationRecipients.courseId,
+        classSectionId: notificationRecipients.classSectionId,
         type: notifications.type,
         title: notifications.title,
         message: notifications.message,
@@ -1819,16 +1929,17 @@ export class DatabaseStorage implements IStorage {
         destinationRoute: notifications.destinationRoute,
         relatedEntityType: notifications.relatedEntityType,
         relatedEntityId: notifications.relatedEntityId,
-        isRead: notifications.isRead,
-        readAt: notifications.readAt,
+        isRead: notificationRecipients.isRead,
+        readAt: notificationRecipients.readAt,
         createdAt: notifications.createdAt,
       })
-      .from(notifications)
+      .from(notificationRecipients)
+      .innerJoin(notifications, eq(notifications.id, notificationRecipients.notificationId))
       .leftJoin(users, eq(users.id, notifications.senderId))
       .where(
         and(
-          eq(notifications.userId, userId),
-          unreadOnly ? eq(notifications.isRead, false) : undefined,
+          eq(notificationRecipients.userId, userId),
+          unreadOnly ? eq(notificationRecipients.isRead, false) : undefined,
         ),
       )
       .orderBy(desc(notifications.createdAt));
@@ -1841,9 +1952,14 @@ export class DatabaseStorage implements IStorage {
 
   async markNotificationRead(notificationId: number, userId: number): Promise<void> {
     await db
-      .update(notifications)
+      .update(notificationRecipients)
       .set({ isRead: true, readAt: new Date() })
-      .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+      .where(
+        and(
+          eq(notificationRecipients.notificationId, notificationId),
+          eq(notificationRecipients.userId, userId),
+        ),
+      );
   }
 
   async createPasswordResetRequest(payload: InsertPasswordResetRequest): Promise<PasswordResetRequest> {

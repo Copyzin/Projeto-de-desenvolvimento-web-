@@ -20,6 +20,7 @@ export function useCourses() {
       }
       return api.courses.list.responses[200].parse(await res.json());
     },
+    refetchOnMount: "always",
   });
 
   const createCourse = useMutation({
@@ -37,6 +38,7 @@ export function useCourses() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.courses.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.students.scope.path] });
       toast({ title: "Curso criado", description: "O curso foi cadastrado com sucesso." });
     },
     onError: (error) => {

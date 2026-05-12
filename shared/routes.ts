@@ -412,6 +412,7 @@ export const api = {
         201: z.object({
           user: userPublicSchema,
           enrollment: enrollmentSchema,
+          initialPassword: z.string().min(1),
         }),
       },
     },

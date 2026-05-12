@@ -359,6 +359,8 @@ export async function seedDatabase() {
     subjectByCourseName.set(course.name, courseSubjects);
   }
 
+  await storage.ensureDefaultClassSections();
+
   const ccCourse = createdCourses.find((course) => course.name === "Ciencia da Computacao");
   if (!ccCourse) throw new Error("Curso de Ciencia da Computacao nao encontrado no seed");
 

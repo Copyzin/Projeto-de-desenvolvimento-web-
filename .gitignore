@@ -1,0 +1,24 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.*
+.local
+server/public
+vite.config.ts.*
+*.tar.gz
+
+# Arquivos de upload (gerados em runtime) — mantém o diretório via .gitkeep
+storage/materials/*
+!storage/materials/.gitkeep
+
+# Build artifacts
+*.cjs.map
+
+# Artefatos de plataforma (Replit, MCP local)
+.replit
+.playwright-mcp/
+
+# Arquivos de backup avulsos
+nebula-backup.txt
+
